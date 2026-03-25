@@ -1,0 +1,81 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: pip install pyinstaller
+      - run: pip install -e ".[all]"
+      - run: cd frontend && npm ci && npm run build && cd ..
+      - run: python build.py
+      - run: pyinstaller wabbajack-py.spec --noconfirm
+      - run: chmod +x dist/wabbajack-py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wabbajack-py-linux
+          path: dist/wabbajack-py
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: pip install pyinstaller
+      - run: pip install -e ".[all]"
+      - run: cd frontend && npm ci && npm run build && cd ..
+      - run: python build.py
+      - run: pyinstaller wabbajack-py.spec --noconfirm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wabbajack-py-windows
+          path: dist/wabbajack-py.exe
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: pip install pyinstaller
+      - run: pip install -e ".[all]"
+      - run: cd frontend && npm ci && npm run build && cd ..
+      - run: python build.py
+      - run: pyinstaller wabbajack-py.spec --noconfirm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wabbajack-py-macos
+          path: dist/wabbajack-py
+
+  release:
+    needs: [build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+      - run: |
+          mv wabbajack-py-linux/wabbajack-py wabbajack-py-linux-x64
+          mv wabbajack-py-windows/wabbajack-py.exe wabbajack-py-windows-x64.exe
+          mv wabbajack-py-macos/wabbajack-py wabbajack-py-macos-x64
+          chmod +x wabbajack-py-linux-x64 wabbajack-py-macos-x64
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            wabbajack-py-linux-x64
+            wabbajack-py-windows-x64.exe
+            wabbajack-py-macos-x64
+          generate_release_notes: true

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=wabbajack-py
+Comment=Cross-platform Wabbajack modlist installer
+Exec=wabbajack-py serve
+Terminal=false
+Type=Application
+Categories=Game;Utility;
+Keywords=modding;wabbajack;skyrim;modlist;
+StartupNotify=true
