@@ -41,8 +41,8 @@ def _download_one_mediafire(archive, downloads_dir):
             direct = scrape_mediafire_link(url)
             if direct and download_with_progress(direct, dest, quiet=True):
                 return archive, True
-        except (HTTPError, URLError, OSError, TimeoutError, ValueError):
-            pass
+        except (HTTPError, URLError, OSError, TimeoutError, ValueError) as e:
+            log.debug(f"    MediaFire attempt {attempt+1} {type(e).__name__}: {e}")
         if attempt < MAX_RETRIES - 1:
             time.sleep(3)
     return archive, False

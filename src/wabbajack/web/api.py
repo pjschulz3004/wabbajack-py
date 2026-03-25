@@ -213,11 +213,13 @@ async def nexus_status():
 async def nexus_login():
     global _sso_task
     from .auth import initiate_sso
+    # Cancel any in-progress SSO flow before starting a new one
+    if _sso_task and not _sso_task.done():
+        _sso_task.cancel()
     auth_url, wait_fn = await initiate_sso()
     if not auth_url:
         raise HTTPException(500, "Could not start SSO (websockets package missing?)")
 
-    # Start background task to wait for token
     _sso_task = asyncio.create_task(wait_fn())
     return {"auth_url": auth_url}
 
@@ -225,9 +227,12 @@ async def nexus_login():
 @router.get("/auth/nexus/sso-status")
 async def nexus_sso_status():
     """Check if SSO completed."""
+    global _sso_task
     from .auth import get_nexus_status
     status = get_nexus_status()
     done = _sso_task is None or _sso_task.done() if _sso_task else True
+    if done and _sso_task is not None:
+        _sso_task = None  # Reset for future login attempts
     return {**status, "sso_complete": done}
 
 
@@ -272,9 +277,18 @@ async def load_order_get(game_type: str, game_dir: str = '', profile: str = ''):
     }
 
 
+class ModUpdate(BaseModel):
+    name: str
+    enabled: bool = True
+    uid: str = ''
+
+class PluginUpdate(BaseModel):
+    filename: str
+    enabled: bool = True
+
 class LoadOrderUpdate(BaseModel):
-    mods: list[dict] | None = None
-    plugins: list[dict] | None = None
+    mods: list[ModUpdate] | None = None
+    plugins: list[PluginUpdate] | None = None
 
 
 @router.put("/loadorder/{game_type}")
@@ -292,9 +306,9 @@ async def load_order_update(game_type: str, req: LoadOrderUpdate,
     lo.load()
 
     if req.mods is not None:
-        lo.mods = [ModEntry(m['name'], m.get('enabled', True), i) for i, m in enumerate(req.mods)]
+        lo.mods = [ModEntry(m.name, m.enabled, i, m.uid) for i, m in enumerate(req.mods)]
     if req.plugins is not None:
-        lo.plugins = [PluginEntry(p['filename'], p.get('enabled', True)) for p in req.plugins]
+        lo.plugins = [PluginEntry(p.filename, p.enabled) for p in req.plugins]
 
     lo.save()
     return {"status": "saved", **lo.summary()}

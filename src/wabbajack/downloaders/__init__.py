@@ -7,6 +7,18 @@ log = logging.getLogger(__name__)
 
 USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0'
 CHUNK_SIZE = 1024 * 1024  # 1 MB -- reduces Python loop overhead 4x for multi-GB files
+
+
+def _print_progress(downloaded: int, total: int, speed: float):
+    """Print download progress to stdout (shared by all download methods)."""
+    if total > 0:
+        pct = downloaded / total * 100
+        eta = (total - downloaded) / speed if speed > 0 else 0
+        print(f"\r    {pct:.0f}% {downloaded/1048576:.1f}/{total/1048576:.1f} MB "
+              f"({speed/1048576:.1f} MB/s, ETA {eta:.0f}s)  ", end="", flush=True)
+    else:
+        print(f"\r    {downloaded/1048576:.1f} MB ({speed/1048576:.1f} MB/s)  ",
+              end="", flush=True)
 DOWNLOAD_TIMEOUT = 600
 MAX_RETRIES = 3
 
@@ -98,14 +110,7 @@ def _download_requests(session, url, dest_path, timeout, quiet):
                     if not quiet:
                         elapsed = time.time() - start
                         speed = (downloaded - resume_offset) / elapsed if elapsed > 0 else 0
-                        if total > 0:
-                            pct = downloaded / total * 100
-                            eta = (total - downloaded) / speed if speed > 0 else 0
-                            print(f"\r    {pct:.0f}% {downloaded/1048576:.1f}/{total/1048576:.1f} MB "
-                                  f"({speed/1048576:.1f} MB/s, ETA {eta:.0f}s)  ", end="", flush=True)
-                        else:
-                            print(f"\r    {downloaded/1048576:.1f} MB ({speed/1048576:.1f} MB/s)  ",
-                                  end="", flush=True)
+                        _print_progress(downloaded, total, speed)
 
         # Rename .part to final name on success
         part_path.rename(dest)
@@ -148,14 +153,7 @@ def _download_urllib(url, dest_path, timeout, quiet):
                 if not quiet:
                     elapsed = time.time() - start
                     speed = downloaded / elapsed if elapsed > 0 else 0
-                    if total > 0:
-                        pct = downloaded / total * 100
-                        eta = (total - downloaded) / speed if speed > 0 else 0
-                        print(f"\r    {pct:.0f}% {downloaded/1048576:.1f}/{total/1048576:.1f} MB "
-                              f"({speed/1048576:.1f} MB/s, ETA {eta:.0f}s)  ", end="", flush=True)
-                    else:
-                        print(f"\r    {downloaded/1048576:.1f} MB ({speed/1048576:.1f} MB/s)  ",
-                              end="", flush=True)
+                    _print_progress(downloaded, total, speed)
         if not quiet:
             elapsed = time.time() - start
             speed = downloaded / elapsed if elapsed > 0 else 0
