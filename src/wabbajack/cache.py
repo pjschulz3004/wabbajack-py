@@ -76,6 +76,8 @@ class ArchiveCache:
 
     def index_archive(self, archive_name):
         """Build case-insensitive index for an extracted archive."""
+        if archive_name in self._index:
+            return
         extract_dir = self.get_extract_dir(archive_name)
         if not extract_dir.exists():
             return

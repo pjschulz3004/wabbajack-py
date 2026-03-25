@@ -2,6 +2,7 @@
 import re, time, shutil, logging
 from pathlib import Path
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .modlist import WabbajackModlist
 from .finder import CaseInsensitiveFinder
@@ -15,6 +16,20 @@ from .downloaders.mega import download_mega_files
 from .downloaders.gdrive import download_gdrive_files
 
 log = logging.getLogger(__name__)
+
+# Wabbajack path magic constants used in RemappedInlineFile directives.
+# These get replaced with actual paths so MO2 configs point to the right locations.
+PATH_MAGIC = {
+    '{--||GAME_PATH_MAGIC_BACK||--}':          ('game', '\\'),
+    '{--||GAME_PATH_MAGIC_DOUBLE_BACK||--}':   ('game', '\\\\'),
+    '{--||GAME_PATH_MAGIC_FORWARD||--}':       ('game', '/'),
+    '{--||MO2_PATH_MAGIC_BACK||--}':           ('output', '\\'),
+    '{--||MO2_PATH_MAGIC_DOUBLE_BACK||--}':    ('output', '\\\\'),
+    '{--||MO2_PATH_MAGIC_FORWARD||--}':        ('output', '/'),
+    '{--||DOWNLOAD_PATH_MAGIC_BACK||--}':      ('downloads', '\\'),
+    '{--||DOWNLOAD_PATH_MAGIC_DOUBLE_BACK||--}': ('downloads', '\\\\'),
+    '{--||DOWNLOAD_PATH_MAGIC_FORWARD||--}':   ('downloads', '/'),
+}
 
 
 class ModlistInstaller:
@@ -32,6 +47,7 @@ class ModlistInstaller:
 
         self.output.mkdir(parents=True, exist_ok=True)
         self.downloads.mkdir(parents=True, exist_ok=True)
+        self._output_resolved = str(self.output.resolve())
 
         self.archive_by_hash = {a['Hash']: a for a in self.ml.archives}
 
@@ -63,12 +79,14 @@ class ModlistInstaller:
         for key in (name, name.lower()):
             if key in self.downloads_index:
                 path = self.downloads_index[key]
-                if path.exists():
+                try:
                     actual_size = path.stat().st_size
                     if expected_size == 0 or actual_size == expected_size:
                         return True
                     if expected_size > 0 and actual_size >= expected_size * 0.95:
                         return True
+                except OSError:
+                    pass
 
         state_type = archive['State'].get('$type', '')
         if 'GameFileSource' in state_type:
@@ -92,8 +110,11 @@ class ModlistInstaller:
         for key in (name, name.lower()):
             if key in self.downloads_index:
                 p = self.downloads_index[key]
-                if p.exists() and p.stat().st_size > 0:
-                    return p
+                try:
+                    if p.stat().st_size > 0:
+                        return p
+                except OSError:
+                    pass
         return None
 
     def _register_download(self, archive):
@@ -110,26 +131,88 @@ class ModlistInstaller:
     # Common file extensions that indicate extractable archives
     ARCHIVE_EXTS = ('.bsa', '.ba2', '.zip', '.7z', '.rar')
 
+    def _remap_inline_content(self, data):
+        """Replace Wabbajack path magic strings with actual paths."""
+        try:
+            text = data.decode('utf-8')
+        except (UnicodeDecodeError, AttributeError):
+            return data  # Binary file, no remapping needed
+
+        paths = {
+            'game': str(self.game_dir),
+            'output': str(self.output),
+            'downloads': str(self.downloads),
+        }
+        changed = False
+        for magic, (path_key, sep) in PATH_MAGIC.items():
+            if magic in text:
+                real_path = paths[path_key]
+                if sep == '/':
+                    real_path = real_path.replace('\\', '/')
+                elif sep == '\\\\':
+                    real_path = real_path.replace('/', '\\').replace('\\', '\\\\')
+                elif sep == '\\':
+                    real_path = real_path.replace('/', '\\')
+                text = text.replace(magic, real_path)
+                changed = True
+        return text.encode('utf-8') if changed else data
+
+    def _setup_mo2(self):
+        """Set up MO2 directory structure and config for a working install."""
+        # Create portable.txt so MO2 runs in portable mode
+        portable = self.output / 'portable.txt'
+        if not portable.exists():
+            portable.write_text('')
+            log.info("  Created portable.txt")
+
+        # Remap ModOrganizer.ini download directory
+        mo2_ini = self.output / 'ModOrganizer.ini'
+        if mo2_ini.exists():
+            try:
+                content = mo2_ini.read_text(encoding='utf-8', errors='replace')
+                new_content = content
+                # Fix download_directory to point to actual downloads path
+                dl_path = str(self.downloads).replace('\\', '/')
+                new_content = re.sub(
+                    r'download_directory\s*=.*',
+                    f'download_directory={dl_path}',
+                    new_content
+                )
+                # Fix base_directory to output
+                out_path = str(self.output).replace('\\', '/')
+                new_content = re.sub(
+                    r'base_directory\s*=.*',
+                    f'base_directory={out_path}',
+                    new_content
+                )
+                if new_content != content:
+                    mo2_ini.write_text(new_content, encoding='utf-8')
+                    log.info("  Remapped ModOrganizer.ini paths")
+            except OSError as e:
+                log.warning(f"  Could not remap ModOrganizer.ini: {e}")
+
+        # Create output mods directory if referenced in settings
+        for subdir in ('mods', 'profiles', 'overwrite', 'crashDumps'):
+            (self.output / subdir).mkdir(exist_ok=True)
+
     def _place_file(self, src, to_field):
         """Place a file from src to the output path derived from a directive's To field.
 
         Validates against path traversal. Returns True on success.
         """
         dest = self.output / to_field.replace('\\', '/')
-        # Path traversal check
         try:
-            resolved = dest.resolve()
-            if not str(resolved).startswith(str(self.output.resolve())):
+            resolved = str(dest.resolve())
+            if not resolved.startswith(self._output_resolved):
                 log.warning(f"  Path traversal blocked: {to_field}")
                 return False
         except (OSError, ValueError):
             return False
         try:
             dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dest)
+            shutil.copyfile(src, dest)
             return True
         except (OSError, PermissionError) as e:
-            # First 20 failures at WARNING (visible), rest at DEBUG (log file only)
             lvl = logging.WARNING if self.stats['fail'] < 20 else logging.DEBUG
             log.log(lvl, f'    Place failed: {dest} -- {e}')
             return False
@@ -257,7 +340,7 @@ class ModlistInstaller:
                 log.warning(f"  {a['Name']} ({a['State'].get('$type', '?')})")
             self.failed_downloads.extend(unknown)
 
-        self._refresh_downloads_index()
+        # _register_download already updates the index incrementally, so no full rescan needed
 
         still_missing = [a for a in self.ml.archives if not self._is_archive_present(a)]
         manual_count = len(groups.get('manual', []))
@@ -296,8 +379,10 @@ class ModlistInstaller:
                     groups[ahp[0]].append(d)
                 else:
                     inline_directives.append(d)
-            elif dtype in ('InlineFile', 'RemappedInlineFile'):
+            elif dtype == 'InlineFile':
                 inline_directives.append(d)
+            elif dtype == 'RemappedInlineFile':
+                inline_directives.append(d)  # handled separately with path remapping
             elif dtype == 'PatchedFromArchive':
                 patched_directives.append(d)
             elif dtype == 'CreateBSA':
@@ -331,29 +416,26 @@ class ModlistInstaller:
             if info:
                 self.archive_cache.index_archive(info['Name'])
 
-    def _place_files_from_archive(self, archive_hash, directives):
+    def _resolve_directive_sources(self, archive_hash, directives):
+        """Resolve source files for directives. Returns list of (src, to_field) pairs."""
         info = self.archive_by_hash.get(archive_hash)
         if not info:
-            self.stats['fail'] += len(directives)
-            return
+            return [], len(directives)
 
         name = info['Name']
         state_type = info['State'].get('$type', '')
+        pairs = []
+        fail = 0
 
-        # Direct file copy for non-archive game files
         if 'GameFileSource' in state_type:
             gf = info['State'].get('GameFile', '')
             if not any(gf.lower().endswith(ext) for ext in self.ARCHIVE_EXTS):
                 src = self.find_archive_path(archive_hash)
                 if not src:
-                    self.stats['fail'] += len(directives)
-                    return
+                    return [], len(directives)
                 for d in directives:
-                    if self._place_file(src, d.get('To', '')):
-                        self.stats['ok'] += 1
-                    else:
-                        self.stats['fail'] += 1
-                return
+                    pairs.append((src, d.get('To', '')))
+                return pairs, 0
 
         for d in directives:
             ahp = d.get('ArchiveHashPath', [])
@@ -365,12 +447,42 @@ class ModlistInstaller:
                 src = self.archive_cache.find_file(name, internal_path)
 
             if src and src.exists():
-                if self._place_file(src, d.get('To', '')):
-                    self.stats['ok'] += 1
-                else:
-                    self.stats['fail'] += 1
+                pairs.append((src, d.get('To', '')))
             else:
-                self.stats['fail'] += 1
+                fail += 1
+        return pairs, fail
+
+    def _place_batch_parallel(self, all_pairs, label=""):
+        """Place files in parallel using ThreadPoolExecutor."""
+        if not all_pairs:
+            return
+
+        # Pre-create all unique parent directories in bulk
+        dirs = set()
+        for _, to_field in all_pairs:
+            dest = self.output / to_field.replace('\\', '/')
+            dirs.add(dest.parent)
+        for d in dirs:
+            d.mkdir(parents=True, exist_ok=True)
+
+        ok = 0
+        fail = 0
+        placement_workers = min(self.workers, len(all_pairs))
+        with ThreadPoolExecutor(max_workers=placement_workers) as pool:
+            futures = {pool.submit(self._place_file, src, to): (src, to)
+                       for src, to in all_pairs}
+            for future in as_completed(futures):
+                try:
+                    if future.result():
+                        ok += 1
+                    else:
+                        fail += 1
+                except Exception:
+                    fail += 1
+        self.stats['ok'] += ok
+        self.stats['fail'] += fail
+        if label:
+            log.debug(f"  {label}: {ok} placed, {fail} failed")
 
     def install(self, skip_download=False, download_types=None, dry_run=False):
         log.info(f"\n{'='*60}")
@@ -402,30 +514,49 @@ class ModlistInstaller:
         log.info("\n=== Step 4: Extracting archives & placing files ===")
         all_hashes = list(groups.keys())
         batch_size = 200
+        total_d = sum(len(v) for v in groups.values())
         for batch_start in range(0, len(all_hashes), batch_size):
             batch = all_hashes[batch_start:batch_start + batch_size]
             batch_num = batch_start // batch_size + 1
             total_batches = (len(all_hashes) + batch_size - 1) // batch_size
             log.info(f"\n  Batch {batch_num}/{total_batches}")
             self._batch_extract_archives(batch)
+
+            # Resolve all source->dest pairs for this batch, then place in parallel
+            all_pairs = []
             for h in batch:
-                self._place_files_from_archive(h, groups[h])
-            total_d = sum(len(v) for v in groups.values())
+                pairs, fail_count = self._resolve_directive_sources(h, groups[h])
+                all_pairs.extend(pairs)
+                self.stats['fail'] += fail_count
+            self._place_batch_parallel(all_pairs, f"Batch {batch_num}")
             log.info(f"  Progress: {self.stats['ok']}/{total_d} placed, {self.stats['fail']} failed")
 
         log.info(f"\n=== Step 5: Installing {len(inlines)} inline files ===")
+        inline_pairs = []
+        remapped_count = 0
         for d in inlines:
             source_id = d.get('SourceDataID', '')
             src = self.inline_dir / source_id
-            if src.exists():
-                if self._place_file(src, d.get('To', '')):
-                    self.stats['ok'] += 1
-                else:
-                    self.stats['fail'] += 1
-            else:
+            if not src.exists():
                 self.stats['fail'] += 1
+                continue
+            # RemappedInlineFile: replace path magic strings before placing
+            if d.get('$type') == 'RemappedInlineFile':
+                try:
+                    data = src.read_bytes()
+                    remapped = self._remap_inline_content(data)
+                    if remapped is not data:
+                        src.write_bytes(remapped)
+                        remapped_count += 1
+                except OSError as e:
+                    log.warning(f"  Remap failed for {source_id}: {e}")
+            inline_pairs.append((src, d.get('To', '')))
+        if remapped_count:
+            log.info(f"  Remapped {remapped_count} inline files with actual paths")
+        self._place_batch_parallel(inline_pairs, "Inline files")
 
         log.info(f"\n=== Step 6: Installing {len(patched)} patched files (base copy) ===")
+        patch_pairs = []
         for d in patched:
             ahp = d.get('ArchiveHashPath', [])
             if not ahp:
@@ -443,12 +574,10 @@ class ModlistInstaller:
             if not src:
                 src = self.find_archive_path(archive_hash)
             if src and src.exists():
-                if self._place_file(src, d.get('To', '')):
-                    self.stats['ok'] += 1
-                else:
-                    self.stats['fail'] += 1
+                patch_pairs.append((src, d.get('To', '')))
             else:
                 self.stats['fail'] += 1
+        self._place_batch_parallel(patch_pairs, "Patched files")
 
         if bsas:
             log.info(f"\n=== Step 7: BSA creation ({len(bsas)} archives) ===")
@@ -460,6 +589,9 @@ class ModlistInstaller:
                     log.info(f"  TODO: {dest_name} ({len(states)} files)")
                     f.write(f"{dest_name}\t{len(states)} files\n")
                     self.stats['bsa'] += 1
+
+        log.info("\n=== Step 8: MO2 setup ===")
+        self._setup_mo2()
 
         pct = self.stats['ok'] / max(1, self.stats['ok'] + self.stats['fail']) * 100
         log.info(f"\n{'='*60}")

@@ -15,7 +15,7 @@ except ImportError:
     HAS_XXHASH = False
     log.debug("xxhash not installed -- hash verification disabled (pip install xxhash)")
 
-CHUNK_SIZE = 1024 * 1024  # 1 MB chunks for hashing
+CHUNK_SIZE = 8 * 1024 * 1024  # 8 MB chunks -- xxHash64 is 10+ GB/s, I/O is the bottleneck
 
 
 def compute_xxhash64_b64(file_path):

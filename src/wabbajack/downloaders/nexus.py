@@ -1,7 +1,8 @@
 """Nexus Mods downloader using the v1 API. Requires Premium for auto-download."""
-import re, json, time, logging
+import re, json, time, logging, threading
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from . import download_with_progress, USER_AGENT, MAX_RETRIES
 
 log = logging.getLogger(__name__)
@@ -69,8 +70,46 @@ class NexusClient:
         return None
 
 
+NEXUS_PARALLEL_DOWNLOADS = 4  # Concurrent download threads (API calls stay serialized)
+
+
+def _nexus_download_one(archive, downloads_dir, nexus_client, api_lock):
+    """Download a single Nexus archive. Returns (archive, success)."""
+    state = archive['State']
+    game = state.get('GameName', 'skyrimspecialedition')
+    mod_id = state.get('ModID', 0)
+    file_id = state.get('FileID', 0)
+
+    meta = archive.get('Meta', '')
+    if not mod_id:
+        m = re.search(r'modID=(\d+)', meta)
+        if m: mod_id = int(m.group(1))
+    if not file_id:
+        m = re.search(r'fileID=(\d+)', meta)
+        if m: file_id = int(m.group(1))
+
+    if not mod_id or not file_id:
+        log.warning(f"    No ModID/FileID for {archive['Name']}, skipping")
+        return archive, False
+
+    dest = downloads_dir / archive['Name']
+    for attempt in range(MAX_RETRIES):
+        # Serialize API calls (rate-limited), parallelize actual downloads
+        with api_lock:
+            dl_url = nexus_client.download_link(game, mod_id, file_id)
+            time.sleep(NEXUS_RATE_DELAY)
+        if dl_url:
+            if download_with_progress(dl_url, dest, quiet=True):
+                return archive, True
+        else:
+            log.warning(f"    Could not get download link for {game}/mods/{mod_id}/files/{file_id}")
+        if attempt < MAX_RETRIES - 1:
+            time.sleep(NEXUS_RATE_DELAY * (attempt + 2))
+    return archive, False
+
+
 def download_nexus_files(archives, downloads_dir, nexus_client, register_fn, failed_list):
-    """Download archives from Nexus using Premium API."""
+    """Download archives from Nexus using Premium API with parallel downloads."""
     if not archives:
         return
     if not nexus_client:
@@ -98,52 +137,32 @@ def download_nexus_files(archives, downloads_dir, nexus_client, register_fn, fai
 
     total_size = sum(a.get('Size', 0) for a in archives)
     log.info(f"\n--- Downloading {len(archives)} Nexus files (~{total_size/1073741824:.1f} GB) ---")
+    log.info(f"  Using {NEXUS_PARALLEL_DOWNLOADS} parallel download threads")
 
+    api_lock = threading.Lock()
     ok = 0
-    for i, a in enumerate(archives):
-        state = a['State']
-        game = state.get('GameName', 'skyrimspecialedition')
-        mod_id = state.get('ModID', 0)
-        file_id = state.get('FileID', 0)
+    completed = 0
 
-        meta = a.get('Meta', '')
-        if not mod_id:
-            m = re.search(r'modID=(\d+)', meta)
-            if m: mod_id = int(m.group(1))
-        if not file_id:
-            m = re.search(r'fileID=(\d+)', meta)
-            if m: file_id = int(m.group(1))
-
-        dest = downloads_dir / a['Name']
-        size_mb = a.get('Size', 0) / 1048576
-        log.info(f"  [{i+1}/{len(archives)}] {a['Name'][:70]} ({size_mb:.1f} MB)")
-
-        if not mod_id or not file_id:
-            log.warning(f"    No ModID/FileID for {a['Name']}, skipping (meta: {meta[:80]})")
-            failed_list.append(a)
-            continue
-
-        success = False
-        for attempt in range(MAX_RETRIES):
-            dl_url = nexus_client.download_link(game, mod_id, file_id)
-            if dl_url:
-                if download_with_progress(dl_url, dest):
-                    register_fn(a)
-                    ok += 1
-                    success = True
-                    break
+    with ThreadPoolExecutor(max_workers=NEXUS_PARALLEL_DOWNLOADS) as pool:
+        futures = {
+            pool.submit(_nexus_download_one, a, downloads_dir, nexus_client, api_lock): a
+            for a in archives
+        }
+        for future in as_completed(futures):
+            completed += 1
+            archive, success = future.result()
+            if success:
+                register_fn(archive)
+                ok += 1
+                size_mb = archive.get('Size', 0) / 1048576
+                log.info(f"  [{completed}/{len(archives)}] OK: {archive['Name'][:70]} ({size_mb:.1f} MB)")
             else:
-                log.warning(f"    Could not get download link for {game}/mods/{mod_id}/files/{file_id}")
-            if attempt < MAX_RETRIES - 1:
-                time.sleep(NEXUS_RATE_DELAY * (attempt + 2))
-        if not success:
-            failed_list.append(a)
+                failed_list.append(archive)
+                log.warning(f"  [{completed}/{len(archives)}] FAIL: {archive['Name'][:70]}")
 
-        time.sleep(NEXUS_RATE_DELAY)
-
-        if (i + 1) % 200 == 0:
-            log.info(f"\n  === Checkpoint: {ok}/{i+1} downloaded, {len(failed_list)} failed ===")
-            if nexus_client.daily_remaining is not None:
-                log.info(f"  === API calls remaining: {nexus_client.daily_remaining} ===\n")
+            if completed % 200 == 0:
+                log.info(f"\n  === Checkpoint: {ok}/{completed} downloaded, {len(failed_list)} failed ===")
+                if nexus_client.daily_remaining is not None:
+                    log.info(f"  === API calls remaining: {nexus_client.daily_remaining} ===\n")
 
     log.info(f"  Nexus: {ok}/{len(archives)} downloaded")
