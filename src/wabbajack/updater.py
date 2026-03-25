@@ -6,7 +6,7 @@ from . import __version__
 
 log = logging.getLogger(__name__)
 
-GITHUB_REPO = "pjschulz3004/wabbajack-py"
+GITHUB_REPO = os.environ.get("WABBAJACK_PY_REPO", "pjschulz3004/wabbajack-py")
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 GITHUB_API_COMMITS = f"https://api.github.com/repos/{GITHUB_REPO}/commits/main"
 CURRENT_VERSION = __version__
@@ -82,26 +82,26 @@ def _check_dev_update(timeout: int) -> dict:
         )
         local_sha = local.stdout.strip()[:7]
 
-        # Fetch remote to check for new commits
+        # Detect tracking branch
+        tracking = subprocess.run(
+            ['git', 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'],
+            capture_output=True, text=True, timeout=5, cwd=git_root,
+        )
+        upstream = tracking.stdout.strip() if tracking.returncode == 0 else 'origin/master'
+
+        # Fetch remote
+        remote = upstream.split('/')[0] if '/' in upstream else 'origin'
         subprocess.run(
-            ['git', 'fetch', 'origin', '--quiet'],
+            ['git', 'fetch', remote, '--quiet'],
             capture_output=True, timeout=timeout, cwd=git_root,
         )
 
         # Compare local vs remote
         behind = subprocess.run(
-            ['git', 'rev-list', '--count', 'HEAD..origin/main'],
+            ['git', 'rev-list', '--count', f'HEAD..{upstream}'],
             capture_output=True, text=True, timeout=5, cwd=git_root,
         )
         behind_count = int(behind.stdout.strip()) if behind.returncode == 0 else 0
-
-        # Also try master if main doesn't exist
-        if behind_count == 0 and behind.returncode != 0:
-            behind = subprocess.run(
-                ['git', 'rev-list', '--count', 'HEAD..origin/master'],
-                capture_output=True, text=True, timeout=5, cwd=git_root,
-            )
-            behind_count = int(behind.stdout.strip()) if behind.returncode == 0 else 0
 
         result['current'] = f'{CURRENT_VERSION} ({local_sha})'
 
@@ -110,14 +110,9 @@ def _check_dev_update(timeout: int) -> dict:
             result['latest'] = f'{behind_count} new commits'
             # Get commit log for changelog
             changelog = subprocess.run(
-                ['git', 'log', '--oneline', 'HEAD..origin/main', '--max-count=20'],
+                ['git', 'log', '--oneline', f'HEAD..{upstream}', '--max-count=20'],
                 capture_output=True, text=True, timeout=5, cwd=git_root,
             )
-            if changelog.returncode != 0:
-                changelog = subprocess.run(
-                    ['git', 'log', '--oneline', 'HEAD..origin/master', '--max-count=20'],
-                    capture_output=True, text=True, timeout=5, cwd=git_root,
-                )
             result['changelog'] = changelog.stdout.strip()
         else:
             result['latest'] = f'{CURRENT_VERSION} (up to date)'
