@@ -13,9 +13,23 @@
   let activeFilters = $state<Set<LogLevel>>(new Set(['info', 'warning', 'error', 'debug']));
   let scrollContainer: HTMLDivElement | undefined = $state();
 
+  // Virtual scrolling
+  const LINE_HEIGHT = 20;
+  const BUFFER = 20;
+  let scrollTop = $state(0);
+  let containerHeight = $state(400);
+
   let filteredLogs = $derived(
     logs.filter(log => activeFilters.has((log.level as LogLevel) ?? 'info'))
   );
+
+  let visibleStart = $derived(Math.max(0, Math.floor(scrollTop / LINE_HEIGHT) - BUFFER));
+  let visibleEnd = $derived(
+    Math.min(filteredLogs.length, Math.ceil((scrollTop + containerHeight) / LINE_HEIGHT) + BUFFER)
+  );
+  let visibleLogs = $derived(filteredLogs.slice(visibleStart, visibleEnd));
+  let totalHeight = $derived(filteredLogs.length * LINE_HEIGHT);
+  let offsetY = $derived(visibleStart * LINE_HEIGHT);
 
   function toggleFilter(level: LogLevel) {
     const next = new Set(activeFilters);
@@ -29,8 +43,9 @@
 
   function handleScroll() {
     if (!scrollContainer) return;
-    const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
-    const atBottom = scrollHeight - scrollTop - clientHeight < 40;
+    scrollTop = scrollContainer.scrollTop;
+    containerHeight = scrollContainer.clientHeight;
+    const atBottom = scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight < 40;
     autoScroll = atBottom;
   }
 
@@ -77,6 +92,7 @@
           class:filter-warning={level === 'warning'}
           class:filter-error={level === 'error'}
           class:filter-debug={level === 'debug'}
+          aria-pressed={activeFilters.has(level as LogLevel)}
           onclick={() => toggleFilter(level as LogLevel)}
         >
           {level}
@@ -99,19 +115,23 @@
     bind:this={scrollContainer}
     onscroll={handleScroll}
   >
-    {#each filteredLogs as entry, i (i)}
-      <div class="log-line" style="color: {levelColor(entry.level ?? 'info')}">
-        {#if entry.timestamp}
-          <span class="log-ts">{entry.timestamp}</span>
-        {/if}
-        <span class="log-level" style="color: {levelColor(entry.level ?? 'info')}">
-          [{levelTag(entry.level ?? 'info')}]
-        </span>
-        <span class="log-msg">{entry.message ?? ''}</span>
+    {#if filteredLogs.length > 0}
+      <div class="log-spacer" style="height: {totalHeight}px; position: relative;">
+        <div style="position: absolute; top: {offsetY}px; left: 0; right: 0;">
+          {#each visibleLogs as entry, i (visibleStart + i)}
+            <div class="log-line" style="color: {levelColor(entry.level ?? 'info')}">
+              {#if entry.timestamp}
+                <span class="log-ts">{entry.timestamp}</span>
+              {/if}
+              <span class="log-level" style="color: {levelColor(entry.level ?? 'info')}">
+                [{levelTag(entry.level ?? 'info')}]
+              </span>
+              <span class="log-msg">{entry.message ?? ''}</span>
+            </div>
+          {/each}
+        </div>
       </div>
-    {/each}
-
-    {#if filteredLogs.length === 0}
+    {:else}
       <div class="log-empty">No log entries{activeFilters.size < 4 ? ' matching filter' : ''}</div>
     {/if}
   </div>
@@ -196,11 +216,6 @@
     animation: pulse 2s ease-in-out infinite;
   }
 
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
-  }
-
   .log-scroll {
     flex: 1;
     overflow-y: auto;
@@ -213,10 +228,12 @@
   .log-line {
     display: flex;
     gap: 0.5rem;
-    padding: 0.05rem 0.25rem;
+    padding: 0 0.25rem;
     border-radius: 2px;
-    white-space: pre-wrap;
-    word-break: break-all;
+    white-space: nowrap;
+    overflow: hidden;
+    height: 20px;
+    align-items: center;
   }
 
   .log-line:hover {
@@ -239,6 +256,8 @@
 
   .log-msg {
     flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .log-empty {

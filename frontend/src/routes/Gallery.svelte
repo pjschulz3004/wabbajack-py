@@ -57,20 +57,23 @@
     return result;
   });
 
+  let { onInstall }: { onInstall?: (modlist: any) => void } = $props();
+
   function handleSelect(modlist: any) {
-    // Will be wired to install page later
-    console.log('Selected modlist:', modlist.title);
+    onInstall?.(modlist);
   }
 </script>
 
 <div class="gallery">
   <div class="toolbar">
     <div class="search-wrap">
-      <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <label for="gallery-search" class="sr-only">Search modlists</label>
+      <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <circle cx="11" cy="11" r="8" />
         <line x1="21" y1="21" x2="16.65" y2="16.65" />
       </svg>
       <input
+        id="gallery-search"
         type="text"
         placeholder="Search modlists..."
         bind:value={searchQuery}
@@ -78,7 +81,8 @@
       />
     </div>
 
-    <select bind:value={gameFilter} class="game-select">
+    <label for="gallery-game-filter" class="sr-only">Filter by game</label>
+    <select id="gallery-game-filter" bind:value={gameFilter} class="game-select">
       <option value="all">All Games</option>
       {#each games as game}
         <option value={game}>{game}</option>
@@ -235,8 +239,13 @@
     .grid { grid-template-columns: repeat(2, 1fr); }
   }
 
-  @media (max-width: 768px) {
+  @media (max-width: 900px) {
     .grid { grid-template-columns: 1fr; }
+  }
+
+  @media (max-width: 768px) {
+    .toolbar { flex-direction: column; align-items: stretch; }
+    .result-count { margin-left: 0; }
   }
 
   /* Skeleton cards */

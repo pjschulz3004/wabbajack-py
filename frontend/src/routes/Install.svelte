@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { get } from 'svelte/store';
   import ProgressBar from '../lib/components/ProgressBar.svelte';
   import LogViewer from '../lib/components/LogViewer.svelte';
   import ManualDownloadCard from '../lib/components/ManualDownloadCard.svelte';
   import { logs, progress, manualDownloads, installState, sendWs, clearLogs } from '../lib/stores/ws';
   import { api } from '../lib/api';
+
+  let { modlist = null }: { modlist?: any } = $props();
 
   // Form state
   let wabbajackPath = $state('');
@@ -14,16 +15,11 @@
   let workers = $state(4);
   let showForm = $state(true);
 
-  // Derived from stores
-  let currentLogs = $state<any[]>([]);
-  let currentProgress = $state<any>(null);
-  let currentManuals = $state<any[]>([]);
-  let currentState = $state<any>(null);
-
-  logs.subscribe(v => currentLogs = v);
-  progress.subscribe(v => currentProgress = v);
-  manualDownloads.subscribe(v => currentManuals = v);
-  installState.subscribe(v => currentState = v);
+  // Auto-subscribed store values (no leak)
+  let currentLogs = $derived($logs);
+  let currentProgress = $derived($progress);
+  let currentManuals = $derived($manualDownloads);
+  let currentState = $derived($installState);
 
   let isRunning = $derived(
     currentState?.status === 'running' || currentState?.status === 'installing'
@@ -53,8 +49,10 @@
   let phaseInfo = $derived(phases[progressPhase] ?? phases.idle);
 
   let submitting = $state(false);
+  let installError = $state('');
 
   async function startInstall() {
+    installError = '';
     submitting = true;
     try {
       await api.startInstall({
@@ -66,23 +64,23 @@
       });
       showForm = false;
     } catch (err: any) {
-      console.error('Install start failed:', err);
+      installError = err.message ?? 'Failed to start installation';
     } finally {
       submitting = false;
     }
   }
 
   function pauseInstall() {
-    sendWs({ type: 'command', action: 'pause' });
+    sendWs({ type: 'pause' });
   }
 
   function resumeInstall() {
-    sendWs({ type: 'command', action: 'resume' });
+    sendWs({ type: 'resume' });
   }
 
   function cancelInstall() {
     if (confirm('Cancel this installation? Progress will be lost.')) {
-      sendWs({ type: 'command', action: 'cancel' });
+      sendWs({ type: 'cancel' });
     }
   }
 
@@ -140,6 +138,12 @@
   <!-- Action Area -->
   <section class="action-section">
     {#if showForm && !isRunning}
+      {#if modlist}
+        <div class="modlist-banner">
+          <h3 class="modlist-title">{modlist.title}</h3>
+          <span class="modlist-meta">{modlist.game} &middot; {modlist.author ?? 'Unknown'}</span>
+        </div>
+      {/if}
       <form class="install-form" onsubmit={(e) => { e.preventDefault(); startInstall(); }}>
         <h3 class="section-title">Start Installation</h3>
         <div class="form-grid">
@@ -201,6 +205,14 @@
           </button>
         </div>
       </form>
+      {#if installError}
+        <div class="error-banner" role="alert">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
+          </svg>
+          {installError}
+        </div>
+      {/if}
     {:else}
       <div class="control-bar">
         {#if isRunning && !isPaused}
@@ -385,6 +397,40 @@
     gap: 0.5rem;
   }
 
+  .error-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    padding: 0.625rem 0.875rem;
+    background: rgba(248, 113, 113, 0.1);
+    border: 1px solid var(--error);
+    border-radius: var(--radius-sm);
+    color: var(--error);
+    font-size: 0.825rem;
+  }
+
+  .modlist-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: var(--accent-dim);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+  }
+
+  .modlist-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--accent);
+  }
+
+  .modlist-meta {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+  }
+
   .control-bar {
     display: flex;
     gap: 0.5rem;
@@ -393,5 +439,11 @@
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     border-radius: var(--radius);
+  }
+
+  @media (max-width: 900px) {
+    .form-grid {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

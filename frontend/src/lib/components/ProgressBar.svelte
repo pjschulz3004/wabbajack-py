@@ -31,14 +31,12 @@
     <div
       class="progress-fill"
       class:active={isActive}
-      style="width: {percentage}%"
-    >
-      {#if percentage > 8}
-        <span class="progress-text-inner">{displayPercent}%</span>
-      {/if}
-    </div>
-    {#if percentage <= 8}
-      <span class="progress-text-outer">{displayPercent}%</span>
+      style="transform: scaleX({percentage / 100})"
+    ></div>
+    {#if percentage > 8}
+      <span class="progress-pct inside" style="left: {percentage - 5}%">{displayPercent}%</span>
+    {:else}
+      <span class="progress-pct outside">{displayPercent}%</span>
     {/if}
   </div>
 
@@ -95,16 +93,12 @@
   }
 
   .progress-fill {
-    height: 100%;
+    position: absolute;
+    inset: 0;
     background: linear-gradient(90deg, var(--accent), var(--accent-hover));
     border-radius: var(--radius);
-    transition: width 0.4s ease;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    padding-right: 0.5rem;
-    min-width: 0;
-    position: relative;
+    transform-origin: left;
+    transition: transform 0.4s ease;
     overflow: hidden;
   }
 
@@ -115,10 +109,7 @@
   .progress-fill.active::after {
     content: '';
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    inset: 0;
     background: linear-gradient(
       90deg,
       transparent 0%,
@@ -138,23 +129,22 @@
     100% { transform: translateX(100%); }
   }
 
-  .progress-text-inner {
-    font-size: 0.75rem;
-    font-weight: 700;
-    font-family: var(--font-mono);
-    color: #000;
-    position: relative;
-    z-index: 1;
-  }
-
-  .progress-text-outer {
+  .progress-pct {
     position: absolute;
-    left: 0.5rem;
     top: 50%;
     transform: translateY(-50%);
     font-size: 0.75rem;
     font-weight: 700;
     font-family: var(--font-mono);
+    z-index: 1;
+  }
+
+  .progress-pct.inside {
+    color: #000;
+  }
+
+  .progress-pct.outside {
+    left: 0.5rem;
     color: var(--text-secondary);
   }
 

@@ -4,7 +4,7 @@
   --bg-tertiary: #252532;
   --border: #2d2d3d;
   --text-primary: #e8e8f0;
-  --text-secondary: #8888a0;
+  --text-secondary: #9898b0;
   --accent: #e8922a;
   --accent-hover: #f5a03d;
   --accent-glow: rgba(232, 146, 42, 0.25);
@@ -35,6 +35,9 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--bg-tertiary); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+/* Firefox scrollbar */
+* { scrollbar-width: thin; scrollbar-color: var(--bg-tertiary) transparent; }
 
 input, select, textarea {
   background: var(--bg-tertiary);
@@ -72,5 +75,22 @@ input:focus, select:focus { border-color: var(--accent); }
 .badge-error { background: rgba(248, 113, 113, 0.15); color: var(--error); }
 .badge-accent { background: var(--accent-dim); color: var(--accent); }
 
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 .animate-pulse { animation: pulse 2s ease-in-out infinite; }
+
+@keyframes shimmer { to { background-position: -200% 0; } }

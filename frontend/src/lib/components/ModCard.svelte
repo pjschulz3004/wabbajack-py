@@ -143,10 +143,6 @@
     animation: shimmer 1.5s linear infinite;
   }
 
-  @keyframes shimmer {
-    to { background-position: -200% 0; }
-  }
-
   .img-fallback {
     position: absolute;
     inset: 0;

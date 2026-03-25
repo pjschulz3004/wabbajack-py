@@ -19,8 +19,9 @@
   let sortKey = $state<SortKey>('name');
   let sortDir = $state<SortDir>('asc');
 
-  // Subscribe to install state to pick up archive list
-  installState.subscribe(st => {
+  // Auto-subscribe to install state (no leak)
+  $effect(() => {
+    const st = $installState;
     if (st?.archives) {
       archives = st.archives;
       loading = false;
@@ -57,6 +58,27 @@
     });
     return items;
   })());
+
+  // Virtual scrolling
+  const ROW_HEIGHT = 36;
+  const ROW_BUFFER = 20;
+  let dlScrollTop = $state(0);
+  let dlContainerHeight = $state(500);
+  let tableWrap: HTMLDivElement | undefined = $state();
+
+  let dlVisibleStart = $derived(Math.max(0, Math.floor(dlScrollTop / ROW_HEIGHT) - ROW_BUFFER));
+  let dlVisibleEnd = $derived(
+    Math.min(sorted.length, Math.ceil((dlScrollTop + dlContainerHeight) / ROW_HEIGHT) + ROW_BUFFER)
+  );
+  let visibleRows = $derived(sorted.slice(dlVisibleStart, dlVisibleEnd));
+  let topSpacerHeight = $derived(dlVisibleStart * ROW_HEIGHT);
+  let bottomSpacerHeight = $derived(Math.max(0, (sorted.length - dlVisibleEnd) * ROW_HEIGHT));
+
+  function handleTableScroll() {
+    if (!tableWrap) return;
+    dlScrollTop = tableWrap.scrollTop;
+    dlContainerHeight = tableWrap.clientHeight;
+  }
 
   let counts = $derived({
     total: archives.length,
@@ -141,10 +163,12 @@
 
   <div class="toolbar">
     <div class="search-wrap">
-      <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <label for="dl-search" class="sr-only">Filter archives</label>
+      <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
       </svg>
       <input
+        id="dl-search"
         type="text"
         class="search-input"
         placeholder="Filter archives..."
@@ -177,26 +201,29 @@
       <p class="empty-hint">Start an installation to populate the download list.</p>
     </div>
   {:else}
-    <div class="table-wrap">
+    <div class="table-wrap" bind:this={tableWrap} onscroll={handleTableScroll}>
       <table class="dl-table">
         <thead>
           <tr>
-            <th class="col-status" onclick={() => toggleSort('status')}>
+            <th class="col-status" role="button" tabindex="0" onclick={() => toggleSort('status')} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleSort('status')}>
               Status{sortIndicator('status')}
             </th>
-            <th class="col-name" onclick={() => toggleSort('name')}>
+            <th class="col-name" role="button" tabindex="0" onclick={() => toggleSort('name')} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleSort('name')}>
               Name{sortIndicator('name')}
             </th>
-            <th class="col-source" onclick={() => toggleSort('source_type')}>
+            <th class="col-source" role="button" tabindex="0" onclick={() => toggleSort('source_type')} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleSort('source_type')}>
               Source{sortIndicator('source_type')}
             </th>
-            <th class="col-size" onclick={() => toggleSort('size')}>
+            <th class="col-size" role="button" tabindex="0" onclick={() => toggleSort('size')} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleSort('size')}>
               Size{sortIndicator('size')}
             </th>
           </tr>
         </thead>
         <tbody>
-          {#each sorted as archive (archive.name)}
+          {#if topSpacerHeight > 0}
+            <tr class="spacer"><td colspan="4" style="height: {topSpacerHeight}px; padding: 0; border: none;"></td></tr>
+          {/if}
+          {#each visibleRows as archive (archive.name)}
             <tr class="dl-row" class:row-failed={archive.status === 'failed'}>
               <td class="col-status">
                 {#if archive.status === 'done'}
@@ -226,6 +253,9 @@
               <td class="col-size">{formatSize(archive.size)}</td>
             </tr>
           {/each}
+          {#if bottomSpacerHeight > 0}
+            <tr class="spacer"><td colspan="4" style="height: {bottomSpacerHeight}px; padding: 0; border: none;"></td></tr>
+          {/if}
         </tbody>
       </table>
     </div>
@@ -351,7 +381,8 @@
   }
 
   .dl-row {
-    border-bottom: 1px solid rgba(45, 45, 61, 0.5);
+    height: 36px;
+    border-bottom: 1px solid var(--border);
     transition: background 0.1s;
   }
 

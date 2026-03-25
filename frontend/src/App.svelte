@@ -9,6 +9,12 @@
   type Page = 'gallery' | 'install' | 'downloads' | 'profiles' | 'settings';
 
   let currentPage = $state<Page>('gallery');
+  let selectedModlist = $state<any>(null);
+
+  function navigateToInstall(modlist?: any) {
+    selectedModlist = modlist ?? null;
+    currentPage = 'install';
+  }
 
   const navItems: { id: Page; label: string; icon: string }[] = [
     { id: 'gallery',   label: 'Gallery',   icon: 'M4 6h16M4 10h16M4 14h16M4 18h16' },
@@ -37,26 +43,27 @@
   <aside class="sidebar">
     <div class="sidebar-header">
       <div class="logo">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" aria-hidden="true">
           <path d="M12 2L2 7l10 5 10-5-10-5z" />
           <path d="M2 17l10 5 10-5" />
           <path d="M2 12l10 5 10-5" />
         </svg>
         <div class="logo-text">
           <span class="logo-name">wabbajack-py</span>
-          <span class="logo-version">v0.1.0</span>
+          <span class="logo-version">v0.3.0</span>
         </div>
       </div>
     </div>
 
-    <nav class="nav">
+    <nav class="nav" aria-label="Main navigation">
       {#each navItems as item}
         <button
           class="nav-item"
           class:active={currentPage === item.id}
+          aria-current={currentPage === item.id ? 'page' : undefined}
           onclick={() => currentPage = item.id}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d={item.icon} />
           </svg>
           <span>{item.label}</span>
@@ -92,9 +99,9 @@
     <!-- Page content -->
     <div class="content">
       {#if currentPage === 'gallery'}
-        <Gallery />
+        <Gallery onInstall={navigateToInstall} />
       {:else if currentPage === 'install'}
-        <Install />
+        <Install modlist={selectedModlist} />
       {:else if currentPage === 'downloads'}
         <Downloads />
       {:else if currentPage === 'profiles'}
