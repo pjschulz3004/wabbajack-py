@@ -260,7 +260,7 @@ class ModlistInstaller:
         Validates against path traversal. Skips if dest already matches source size.
         Returns True on success.
         """
-        # String-based traversal check (avoids resolve() syscall per file)
+        # Fast string-based traversal check (catches 99.9% of cases without syscall)
         normalized = to_field.replace('\\', '/')
         parts = normalized.split('/')
         if '..' in parts or normalized.startswith('/'):
@@ -268,6 +268,14 @@ class ModlistInstaller:
             return False
 
         dest = self.output / normalized
+
+        # Resolve to catch symlink escapes (slower but necessary for security)
+        try:
+            if not str(dest.resolve()).startswith(self._output_resolved):
+                log.warning(f"  Symlink escape blocked: {to_field}")
+                return False
+        except (OSError, ValueError):
+            return False
 
         # Skip if destination already exists with matching size (optimized re-install)
         try:

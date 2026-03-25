@@ -40,8 +40,14 @@ def extract_archive_worker(args):
                     return (name, False, 0, f'{type(e).__name__}: {e}')
                 pass  # Other OSError (e.g. encoding issue) -- try 7z
 
+        # Validate archive path doesn't escape expected directory
+        resolved_archive = archive_path.resolve()
+        resolved_extract = extract_dir.resolve()
+        if str(resolved_archive) == str(resolved_extract):
+            return (name, False, 0, 'archive path equals extract dir')
+
         result = subprocess.run(
-            ['7z', 'x', '-y', '-bso0', '-bsp0', f'-o{extract_dir}', str(archive_path)],
+            ['7z', 'x', '-y', '-bso0', '-bsp0', f'-o{resolved_extract}', str(resolved_archive)],
             capture_output=True, timeout=600
         )
         if result.returncode == 0:

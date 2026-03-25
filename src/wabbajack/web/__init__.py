@@ -1,13 +1,17 @@
 """FastAPI web application for wabbajack-py."""
-import logging
+import logging, secrets
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 log = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+# Session token for local auth (prevents cross-site request forgery on mutating endpoints)
+SESSION_TOKEN = secrets.token_urlsafe(32)
 
 
 def create_app():
@@ -17,7 +21,22 @@ def create_app():
         allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Session-Token"],
     )
+
+    @app.middleware("http")
+    async def auth_middleware(request: Request, call_next):
+        """Require session token for mutating API requests."""
+        if request.method in ("POST", "PUT", "DELETE") and request.url.path.startswith("/api/"):
+            token = request.headers.get("X-Session-Token") or request.query_params.get("token")
+            if token != SESSION_TOKEN:
+                return JSONResponse(status_code=403, content={"detail": "Invalid session token"})
+        return await call_next(request)
+
+    # Provide the session token on a GET endpoint (only accessible from localhost)
+    @app.get("/api/session")
+    async def get_session():
+        return {"token": SESSION_TOKEN}
 
     from .api import router as api_router
     from .ws import router as ws_router

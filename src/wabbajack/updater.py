@@ -218,7 +218,7 @@ def _update_dev() -> dict:
             return {'success': False, 'message': f'git pull failed: {pull.stderr[:500]}'}
 
         # Reinstall in editable mode
-        pip_result = subprocess.run(
+        subprocess.run(
             [sys.executable, '-m', 'pip', 'install', '-e', str(git_root), '--quiet'],
             capture_output=True, text=True, timeout=120, cwd=git_root,
         )
@@ -273,11 +273,29 @@ def _update_binary(download_url: str) -> dict:
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=current_exe.suffix, dir=current_exe.parent)
         log.info(f"Downloading update from {download_url}")
 
+        import hashlib
+        sha256 = hashlib.sha256()
         with requests.get(download_url, stream=True, timeout=300) as resp:
             resp.raise_for_status()
             for chunk in resp.iter_content(chunk_size=1024 * 1024):
                 tmp.write(chunk)
+                sha256.update(chunk)
         tmp.close()
+        actual_hash = sha256.hexdigest()
+
+        # Verify checksum against .sha256 sidecar file (if available)
+        sha_url = download_url + '.sha256'
+        try:
+            sha_resp = requests.get(sha_url, timeout=10)
+            if sha_resp.status_code == 200:
+                expected_hash = sha_resp.text.strip().split()[0]
+                if actual_hash != expected_hash:
+                    return {'success': False, 'message': f'Checksum mismatch: expected {expected_hash[:16]}..., got {actual_hash[:16]}...'}
+                log.info(f"Checksum verified: {actual_hash[:16]}...")
+            else:
+                log.warning("No .sha256 sidecar file found, skipping integrity check")
+        except Exception:
+            log.warning("Could not fetch checksum file, skipping integrity check")
 
         os.chmod(tmp.name, 0o755)
 

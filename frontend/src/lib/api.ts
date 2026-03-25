@@ -1,5 +1,19 @@
 const BASE = '/api';
 
+// Session token for authenticated mutating requests
+let sessionToken: string | null = null;
+
+async function ensureToken(): Promise<string> {
+  if (!sessionToken) {
+    const res = await fetch(`${BASE}/session`);
+    if (res.ok) {
+      const data = await res.json();
+      sessionToken = data.token;
+    }
+  }
+  return sessionToken ?? '';
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`);
   if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
@@ -7,9 +21,12 @@ async function get<T>(path: string): Promise<T> {
 }
 
 async function post<T>(path: string, body?: any): Promise<T> {
+  const token = await ensureToken();
+  const headers: Record<string, string> = { 'X-Session-Token': token };
+  if (body) headers['Content-Type'] = 'application/json';
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
-    headers: body ? { 'Content-Type': 'application/json' } : {},
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
@@ -17,9 +34,10 @@ async function post<T>(path: string, body?: any): Promise<T> {
 }
 
 async function put<T>(path: string, body: any): Promise<T> {
+  const token = await ensureToken();
   const res = await fetch(`${BASE}${path}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Session-Token': token },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);

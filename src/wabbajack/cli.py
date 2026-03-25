@@ -92,7 +92,7 @@ def info(wabbajack):
 @main.command()
 @click.argument('wabbajack', type=click.Path(exists=True))
 @click.option('-d', '--downloads', required=True, type=click.Path(), help='Downloads directory')
-@click.option('-k', '--nexus-key', envvar='NEXUS_API_KEY', help='Nexus API key (or set NEXUS_API_KEY env var)')
+@click.option('--nexus-key', envvar='NEXUS_API_KEY', hidden=True, help='DEPRECATED: use NEXUS_API_KEY env var')
 @click.option('-g', '--game-dir', type=click.Path(exists=True), help='Game install directory')
 @click.option('--dry-run', is_flag=True, help='Show what would be downloaded')
 @click.option('--verify', is_flag=True, help='Verify hashes after download (warn only)')
