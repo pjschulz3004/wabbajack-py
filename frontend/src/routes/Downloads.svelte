@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { installState } from '../lib/stores/ws';
+  import { installState, sendWs } from '../lib/stores/ws';
   import { api } from '../lib/api';
 
   interface Archive {
@@ -102,9 +102,7 @@
     const failed = archives.filter(a => a.status === 'failed').map(a => a.name);
     if (failed.length === 0) return;
     // Send retry via WS or API - use WS command
-    import('../lib/stores/ws').then(({ sendWs }) => {
-      sendWs({ type: 'command', action: 'retry_failed', names: failed });
-    });
+    sendWs({ type: 'command', action: 'retry_failed', names: failed });
   }
 
   function exportFailed() {

@@ -1,6 +1,10 @@
 <script lang="ts">
   import { connected, progress, installState, connectWs } from './lib/stores/ws';
   import Gallery from './routes/Gallery.svelte';
+  import Install from './routes/Install.svelte';
+  import Downloads from './routes/Downloads.svelte';
+  import Profiles from './routes/Profiles.svelte';
+  import Settings from './routes/Settings.svelte';
 
   type Page = 'gallery' | 'install' | 'downloads' | 'profiles' | 'settings';
 
@@ -90,33 +94,13 @@
       {#if currentPage === 'gallery'}
         <Gallery />
       {:else if currentPage === 'install'}
-        <div class="placeholder">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" stroke-width="1.5">
-            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
-          </svg>
-          <p>Install page coming soon</p>
-        </div>
+        <Install />
       {:else if currentPage === 'downloads'}
-        <div class="placeholder">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" stroke-width="1.5">
-            <path d="M12 2v20m0 0l-7-7m7 7l7-7" />
-          </svg>
-          <p>Downloads page coming soon</p>
-        </div>
+        <Downloads />
       {:else if currentPage === 'profiles'}
-        <div class="placeholder">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" stroke-width="1.5">
-            <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 3a4 4 0 100 8 4 4 0 000-8" />
-          </svg>
-          <p>Profiles page coming soon</p>
-        </div>
+        <Profiles />
       {:else if currentPage === 'settings'}
-        <div class="placeholder">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" stroke-width="1.5">
-            <circle cx="12" cy="12" r="3" />
-          </svg>
-          <p>Settings page coming soon</p>
-        </div>
+        <Settings />
       {/if}
     </div>
   </main>
@@ -317,15 +301,4 @@
     padding: 1rem 1.25rem;
   }
 
-  /* ─── Placeholder pages ─── */
-  .placeholder {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 1rem;
-    height: 100%;
-    color: var(--text-secondary);
-    font-size: 0.9rem;
-  }
 </style>
