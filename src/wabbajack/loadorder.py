@@ -16,12 +16,13 @@ log = logging.getLogger(__name__)
 
 class ModEntry:
     """A mod in the load order (left pane / asset priority)."""
-    __slots__ = ('name', 'enabled', 'priority')
+    __slots__ = ('name', 'enabled', 'priority', 'uid')
 
-    def __init__(self, name: str, enabled: bool = True, priority: int = 0):
+    def __init__(self, name: str, enabled: bool = True, priority: int = 0, uid: str = ''):
         self.name = name
         self.enabled = enabled
         self.priority = priority
+        self.uid = uid  # Game-specific identifier (BG3 UUID, Nexus mod ID, etc.)
 
     def __repr__(self):
         state = '+' if self.enabled else '-'
@@ -152,6 +153,10 @@ class GameLoadOrder(ABC):
     def _renumber_priorities(self):
         for i, m in enumerate(self.mods):
             m.priority = i
+
+    def validate_load_order(self) -> list[str]:
+        """Check for load order issues. Override in subclasses for game-specific checks."""
+        return []
 
     def summary(self) -> dict:
         return {
@@ -340,25 +345,24 @@ class BG3LoadOrder(GameLoadOrder):
     """Load order for Baldur's Gate 3 via modsettings.lsx."""
 
     game_type = 'BaldursGate3'
+    _BG3_STEAM_ID = '1086940'
+    _BG3_LARIAN_SUBDIR = "Larian Studios/Baldur's Gate 3"
+
+    def _larian_appdata(self) -> Path:
+        """Shared Larian Studios appdata path (Proton or native)."""
+        from .platform import IS_LINUX
+        if IS_LINUX:
+            pfx = Path.home() / f'.local/share/Steam/steamapps/compatdata/{self._BG3_STEAM_ID}/pfx'
+            return pfx / 'drive_c/users/steamuser/AppData/Local' / self._BG3_LARIAN_SUBDIR
+        return Path.home() / 'AppData/Local' / self._BG3_LARIAN_SUBDIR
 
     def _modsettings_path(self) -> Path:
-        """BG3 modsettings.lsx location."""
         if self.profile_dir:
             return self.profile_dir / 'modsettings.lsx'
-        # Default: Larian Studios appdata (Proton or native)
-        from .platform import IS_LINUX
-        if IS_LINUX:
-            # Proton prefix path
-            proton_prefix = Path.home() / '.local/share/Steam/steamapps/compatdata/1086940/pfx'
-            return proton_prefix / 'drive_c/users/steamuser/AppData/Local/Larian Studios/Baldur\'s Gate 3/PlayerProfiles/Public/modsettings.lsx'
-        return Path.home() / 'AppData/Local/Larian Studios/Baldur\'s Gate 3/PlayerProfiles/Public/modsettings.lsx'
+        return self._larian_appdata() / 'PlayerProfiles/Public/modsettings.lsx'
 
     def _mods_dir(self) -> Path:
-        from .platform import IS_LINUX
-        if IS_LINUX:
-            proton_prefix = Path.home() / '.local/share/Steam/steamapps/compatdata/1086940/pfx'
-            return proton_prefix / 'drive_c/users/steamuser/AppData/Local/Larian Studios/Baldur\'s Gate 3/Mods'
-        return Path.home() / 'AppData/Local/Larian Studios/Baldur\'s Gate 3/Mods'
+        return self._larian_appdata() / 'Mods'
 
     def load(self) -> None:
         self.mods = []
@@ -372,18 +376,8 @@ class BG3LoadOrder(GameLoadOrder):
             tree = ET.parse(path)
             root = tree.getroot()
 
-            # Find ModOrder node
-            for node in root.iter('node'):
-                if node.get('id') == 'ModOrder':
-                    children = node.find('children')
-                    if children is None:
-                        continue
-                    for i, mod_node in enumerate(children.findall('node')):
-                        uuid = self._get_attr(mod_node, 'UUID')
-                        if uuid:
-                            self.mods.append(ModEntry(uuid, enabled=True, priority=i))
-
-            # Find Mods node for full metadata
+            # First pass: collect UUID->metadata from Mods node
+            mod_meta: dict[str, str] = {}  # uuid -> display name
             for node in root.iter('node'):
                 if node.get('id') == 'Mods':
                     children = node.find('children')
@@ -392,13 +386,20 @@ class BG3LoadOrder(GameLoadOrder):
                     for mod_node in children.findall('node'):
                         uuid = self._get_attr(mod_node, 'UUID')
                         name = self._get_attr(mod_node, 'Name')
-                        folder = self._get_attr(mod_node, 'Folder')
-                        if name and uuid:
-                            # Store name->uuid mapping on the ModEntry
-                            for m in self.mods:
-                                if m.name == uuid:
-                                    m.name = f"{name} [{uuid[:8]}]"
-                                    break
+                        if uuid and name:
+                            mod_meta[uuid] = name
+
+            # Second pass: build ordered mod list from ModOrder
+            for node in root.iter('node'):
+                if node.get('id') == 'ModOrder':
+                    children = node.find('children')
+                    if children is None:
+                        continue
+                    for i, mod_node in enumerate(children.findall('node')):
+                        uuid = self._get_attr(mod_node, 'UUID')
+                        if uuid:
+                            display = mod_meta.get(uuid, uuid)
+                            self.mods.append(ModEntry(display, enabled=True, priority=i, uid=uuid))
         except ET.ParseError as e:
             log.error(f"Failed to parse modsettings.lsx: {e}")
 
@@ -434,20 +435,12 @@ class BG3LoadOrder(GameLoadOrder):
         ET.SubElement(gustav_node, 'attribute', id='UUID', type='FixedString', value=gustav_uuid)
 
         for m in self.mods:
-            if not m.enabled:
+            if not m.enabled or not m.uid:
                 continue
-            uuid = m.name
-            # Extract UUID from "Name [uuid]" format
-            if '[' in uuid and uuid.endswith(']'):
-                uuid = uuid.split('[')[1].rstrip(']')
-                # Pad short UUID back -- we stored first 8 chars
-                # For save, we need full UUIDs; skip entries without them
-                if len(uuid) < 36:
-                    continue
-            if uuid == gustav_uuid:
+            if m.uid == gustav_uuid:
                 continue
             node = ET.SubElement(mo_children, 'node', id='Module')
-            ET.SubElement(node, 'attribute', id='UUID', type='FixedString', value=uuid)
+            ET.SubElement(node, 'attribute', id='UUID', type='FixedString', value=m.uid)
 
         # Mods metadata
         mods_node = ET.SubElement(children, 'node', id='Mods')

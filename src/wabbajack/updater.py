@@ -171,6 +171,11 @@ def _update_binary(download_url: str) -> dict:
             'restart_required': True,
         }
     except Exception as e:
+        # Clean up temp file
+        try:
+            Path(tmp.name).unlink(missing_ok=True)
+        except Exception:
+            pass
         # Restore backup if swap failed
         try:
             if backup.exists() and not current_exe.exists():

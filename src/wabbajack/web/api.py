@@ -260,7 +260,7 @@ async def load_order_get(game_type: str, game_dir: str = '', profile: str = ''):
     lo = get_load_order(game_type, Path(gd), Path(profile) if profile else None)
     lo.load()
 
-    errors = lo.validate_load_order() if hasattr(lo, 'validate_load_order') else []
+    errors = lo.validate_load_order()
 
     return {
         **lo.summary(),

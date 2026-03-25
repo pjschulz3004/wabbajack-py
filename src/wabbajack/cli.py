@@ -314,7 +314,7 @@ def load_order(game_type, game_dir, profile, validate):
         if len(lo.plugins) > 50:
             log.info(f"    ... and {len(lo.plugins) - 50} more")
 
-    if validate and hasattr(lo, 'validate_load_order'):
+    if validate:
         errors = lo.validate_load_order()
         if errors:
             log.warning(f"\n  Validation Issues ({len(errors)}):")
