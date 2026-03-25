@@ -24,7 +24,7 @@ def download_mega_files(archives, downloads_dir, is_present_fn, register_fn, fai
 
         try:
             result = subprocess.run(
-                ['megadl', '--path', str(downloads_dir), url],
+                ['megadl', '--path', str(downloads_dir), '--', url],
                 capture_output=True, timeout=3600
             )
             if result.returncode != 0:

@@ -13,8 +13,17 @@ DOWNLOAD_TIMEOUT = 600
 MAX_RETRIES = 3
 
 
+def validate_url_scheme(url):
+    """Reject non-HTTP(S) URLs to prevent SSRF (file://, ftp://, etc.)."""
+    parsed = urlparse(url)
+    if parsed.scheme and parsed.scheme.lower() not in ('http', 'https'):
+        raise ValueError(f"Unsafe URL scheme '{parsed.scheme}': {url}")
+    return url
+
+
 def download_with_progress(url, dest_path, timeout=DOWNLOAD_TIMEOUT, quiet=False):
     """Download a URL to a file with progress bar. Returns True on success."""
+    validate_url_scheme(url)
     headers = {'User-Agent': USER_AGENT}
 
     if '%' not in url:

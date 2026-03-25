@@ -102,11 +102,35 @@ class ModlistInstaller:
         if path.exists():
             self.downloads_index[name] = path
             self.downloads_index[name.lower()] = path
-            # Optional hash verification
             if self.verify_hashes:
                 result = verify_archive(path, archive.get('Hash'), name)
                 if not result.ok:
                     self.hash_mismatches.append(result)
+
+    # Common file extensions that indicate extractable archives
+    ARCHIVE_EXTS = ('.bsa', '.ba2', '.zip', '.7z', '.rar')
+
+    def _place_file(self, src, to_field):
+        """Place a file from src to the output path derived from a directive's To field.
+
+        Validates against path traversal. Returns True on success.
+        """
+        dest = self.output / to_field.replace('\\', '/')
+        # Path traversal check
+        try:
+            resolved = dest.resolve()
+            if not str(resolved).startswith(str(self.output.resolve())):
+                log.warning(f"  Path traversal blocked: {to_field}")
+                return False
+        except (OSError, ValueError):
+            return False
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+            return True
+        except (OSError, PermissionError) as e:
+            log.debug(f'    Place failed: {dest} -- {e}')
+            return False
 
     # ── Downloads ─────────────────────────────────────────────────────────
 
@@ -223,6 +247,14 @@ class ModlistInstaller:
             if t in groups and groups[t]:
                 dispatch[t](groups[t])
 
+        # Warn about archive types we don't know how to download
+        unknown = groups.get('unknown', [])
+        if unknown:
+            log.warning(f"\n--- {len(unknown)} archives with unknown download type ---")
+            for a in unknown:
+                log.warning(f"  {a['Name']} ({a['State'].get('$type', '?')})")
+            self.failed_downloads.extend(unknown)
+
         self._refresh_downloads_index()
 
         still_missing = [a for a in self.ml.archives if not self._is_archive_present(a)]
@@ -306,28 +338,24 @@ class ModlistInstaller:
         name = info['Name']
         state_type = info['State'].get('$type', '')
 
+        # Direct file copy for non-archive game files
         if 'GameFileSource' in state_type:
             gf = info['State'].get('GameFile', '')
-            if not any(gf.lower().endswith(ext) for ext in ('.bsa', '.ba2', '.zip', '.7z', '.rar')):
+            if not any(gf.lower().endswith(ext) for ext in self.ARCHIVE_EXTS):
                 src = self.find_archive_path(archive_hash)
                 if not src:
                     self.stats['fail'] += len(directives)
                     return
                 for d in directives:
-                    dest = self.output / d.get('To', '').replace('\\', '/')
-                    try:
-                        dest.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(src, dest)
+                    if self._place_file(src, d.get('To', '')):
                         self.stats['ok'] += 1
-                    except (OSError, PermissionError) as e:
-                        log.debug(f'    Place failed: {dest} -- {e}')
+                    else:
                         self.stats['fail'] += 1
                 return
 
         for d in directives:
             ahp = d.get('ArchiveHashPath', [])
             internal_path = '\\'.join(ahp[1:]) if len(ahp) > 1 else ''
-            dest = self.output / d.get('To', '').replace('\\', '/')
 
             if not internal_path:
                 src = self.find_archive_path(archive_hash)
@@ -335,12 +363,9 @@ class ModlistInstaller:
                 src = self.archive_cache.find_file(name, internal_path)
 
             if src and src.exists():
-                try:
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(src, dest)
+                if self._place_file(src, d.get('To', '')):
                     self.stats['ok'] += 1
-                except (OSError, PermissionError) as e:
-                    log.debug(f'    Place failed: {dest} -- {e}')
+                else:
                     self.stats['fail'] += 1
             else:
                 self.stats['fail'] += 1
@@ -389,15 +414,11 @@ class ModlistInstaller:
         log.info(f"\n=== Step 5: Installing {len(inlines)} inline files ===")
         for d in inlines:
             source_id = d.get('SourceDataID', '')
-            dest = self.output / d.get('To', '').replace('\\', '/')
             src = self.inline_dir / source_id
             if src.exists():
-                try:
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(src, dest)
+                if self._place_file(src, d.get('To', '')):
                     self.stats['ok'] += 1
-                except (OSError, PermissionError) as e:
-                    log.debug(f'    Place failed: {dest} -- {e}')
+                else:
                     self.stats['fail'] += 1
             else:
                 self.stats['fail'] += 1
@@ -405,7 +426,6 @@ class ModlistInstaller:
         log.info(f"\n=== Step 6: Installing {len(patched)} patched files (base copy) ===")
         for d in patched:
             ahp = d.get('ArchiveHashPath', [])
-            dest = self.output / d.get('To', '').replace('\\', '/')
             if not ahp:
                 self.stats['fail'] += 1
                 continue
@@ -421,12 +441,9 @@ class ModlistInstaller:
             if not src:
                 src = self.find_archive_path(archive_hash)
             if src and src.exists():
-                try:
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(src, dest)
+                if self._place_file(src, d.get('To', '')):
                     self.stats['ok'] += 1
-                except (OSError, PermissionError) as e:
-                    log.debug(f'    Place failed: {dest} -- {e}')
+                else:
                     self.stats['fail'] += 1
             else:
                 self.stats['fail'] += 1

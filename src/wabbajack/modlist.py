@@ -19,7 +19,10 @@ class WabbajackModlist:
         self.path = Path(wabbajack_path)
         if not self.path.exists():
             raise FileNotFoundError(f"Modlist not found: {self.path}")
-        self.zf = zipfile.ZipFile(self.path, 'r')
+        try:
+            self.zf = zipfile.ZipFile(self.path, 'r')
+        except zipfile.BadZipFile:
+            raise ValueError(f"Not a valid .wabbajack archive (corrupt or truncated): {self.path}")
         self._modlist = None
 
     def close(self):

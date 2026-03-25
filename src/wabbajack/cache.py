@@ -22,6 +22,12 @@ def extract_archive_worker(args):
         if archive_path.suffix.lower() == '.zip':
             try:
                 with zipfile.ZipFile(archive_path) as zf:
+                    # Validate all paths before extraction to prevent traversal
+                    resolved_base = extract_dir.resolve()
+                    for info in zf.infolist():
+                        target = (extract_dir / info.filename).resolve()
+                        if not str(target).startswith(str(resolved_base)):
+                            return (name, False, 0, f'path traversal in ZIP: {info.filename}')
                     zf.extractall(extract_dir)
                 return (name, True, len(os.listdir(extract_dir)), '')
             except (zipfile.BadZipFile, PermissionError, OSError):
@@ -124,7 +130,16 @@ class ArchiveCache:
         with ProcessPoolExecutor(max_workers=workers) as executor:
             futures = {executor.submit(extract_archive_worker, args): args for args in to_extract}
             for future in as_completed(futures):
-                name, success, _count, err_msg = future.result()
+                try:
+                    name, success, _count, err_msg = future.result()
+                except Exception as e:
+                    # BrokenProcessPool, killed worker, OOM, etc.
+                    args = futures[future]
+                    name = Path(args[0]).name
+                    log.warning(f"  Extract worker crashed: {name}: {type(e).__name__}: {e}")
+                    failed += 1
+                    completed += 1
+                    continue
                 completed += 1
                 if not success:
                     failed += 1

@@ -83,6 +83,12 @@ def download_gdrive_files(archives, downloads_dir, register_fn, failed_list):
             ok += 1
             continue
 
+        # Validate file_id (alphanumeric + hyphens/underscores only)
+        if not re.match(r'^[a-zA-Z0-9_-]+$', file_id):
+            log.error(f"    Invalid Google Drive file ID: {file_id}")
+            failed_list.append(a)
+            continue
+
         # Try gdown first
         success = False
         try:
