@@ -28,6 +28,7 @@ dependencies = [
 
 [project.optional-dependencies]
 gdrive = ["gdown>=5.0"]
+rich = ["rich>=13.0"]
 
 [project.scripts]
 wabbajack-py = "wabbajack.cli:main"

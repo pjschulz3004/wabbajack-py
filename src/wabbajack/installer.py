@@ -15,6 +15,8 @@ from .downloaders.mediafire import download_mediafire_files
 from .downloaders.mega import download_mega_files
 from .downloaders.gdrive import download_gdrive_files
 from .downloaders.moddb import download_moddb_files
+from .state import InstallState
+from .progress import print_install_complete, HAS_RICH
 
 log = logging.getLogger(__name__)
 
@@ -64,6 +66,7 @@ class ModlistInstaller:
         self.stats = defaultdict(int)
         self.failed_downloads = []
         self.hash_mismatches = []
+        self.state = InstallState(self.output)
 
     def _refresh_downloads_index(self):
         self.downloads_index = {}
@@ -628,23 +631,43 @@ class ModlistInstaller:
         self.ml.extract_all_inline(self.inline_dir)
 
         log.info("\n=== Step 4: Extracting archives & placing files ===")
+        self.state.phase = 'placing'
         all_hashes = list(groups.keys())
         batch_size = 200
         total_d = sum(len(v) for v in groups.values())
+        done_hashes = self.state.completed_hashes
+
+        # Skip already-completed batches on resume
+        skipped_batches = 0
         for batch_start in range(0, len(all_hashes), batch_size):
             batch = all_hashes[batch_start:batch_start + batch_size]
             batch_num = batch_start // batch_size + 1
             total_batches = (len(all_hashes) + batch_size - 1) // batch_size
+
+            # Check if entire batch was already completed (resume)
+            if all(h in done_hashes for h in batch):
+                skipped_batches += 1
+                continue
+
+            if skipped_batches and batch_num == skipped_batches + 1:
+                log.info(f"  Resumed: skipped {skipped_batches} completed batches")
+
             log.info(f"\n  Batch {batch_num}/{total_batches}")
             self._batch_extract_archives(batch)
 
-            # Resolve all source->dest pairs for this batch, then place in parallel
             all_pairs = []
             for h in batch:
+                if h in done_hashes:
+                    continue  # Skip individual completed hashes
                 pairs, fail_count = self._resolve_directive_sources(h, groups[h])
                 all_pairs.extend(pairs)
                 self.stats['fail'] += fail_count
             self._place_batch_parallel(all_pairs, f"Batch {batch_num}")
+
+            # Mark batch hashes as completed
+            for h in batch:
+                self.state.mark_hash_done(h)
+            self.state.update_stats(self.stats['ok'], self.stats['fail'])
             log.info(f"  Progress: {self.stats['ok']}/{total_d} placed, {self.stats['fail']} failed")
 
         log.info(f"\n=== Step 5: Installing {len(inlines)} inline files ===")
@@ -709,14 +732,21 @@ class ModlistInstaller:
         log.info("\n=== Step 8: MO2 setup ===")
         self._setup_mo2()
 
+        # Mark installation complete
+        self.state.update_stats(self.stats['ok'], self.stats['fail'])
+        self.state.mark_complete()
+
         pct = self.stats['ok'] / max(1, self.stats['ok'] + self.stats['fail']) * 100
-        log.info(f"\n{'='*60}")
-        log.info(f"Installation complete: {self.ml.name}")
-        log.info(f"  Files placed:     {self.stats['ok']}")
-        log.info(f"  Failed:           {self.stats['fail']}")
-        log.info(f"  BSAs needed:      {self.stats['bsa']}")
-        log.info(f"  Extracted:        {self.stats['archives_extracted']}")
-        log.info(f"  Success rate:     {pct:.1f}%")
-        if self.hash_mismatches:
-            log.warning(f"  Hash mismatches:  {len(self.hash_mismatches)}")
-        log.info(f"{'='*60}")
+        if HAS_RICH:
+            print_install_complete(self.stats, self.hash_mismatches)
+        else:
+            log.info(f"\n{'='*60}")
+            log.info(f"Installation complete: {self.ml.name}")
+            log.info(f"  Files placed:     {self.stats['ok']}")
+            log.info(f"  Failed:           {self.stats['fail']}")
+            log.info(f"  BSAs needed:      {self.stats['bsa']}")
+            log.info(f"  Extracted:        {self.stats['archives_extracted']}")
+            log.info(f"  Success rate:     {pct:.1f}%")
+            if self.hash_mismatches:
+                log.warning(f"  Hash mismatches:  {len(self.hash_mismatches)}")
+            log.info(f"{'='*60}")
