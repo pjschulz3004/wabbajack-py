@@ -1,0 +1,95 @@
+"""Download handlers for all Wabbajack archive source types."""
+import logging, time
+from pathlib import Path
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote, urlparse, urlunparse
+
+log = logging.getLogger(__name__)
+
+USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0'
+CHUNK_SIZE = 256 * 1024
+DOWNLOAD_TIMEOUT = 600
+MAX_RETRIES = 3
+
+
+def download_with_progress(url, dest_path, timeout=DOWNLOAD_TIMEOUT, quiet=False):
+    """Download a URL to a file with progress bar. Returns True on success."""
+    headers = {'User-Agent': USER_AGENT}
+
+    if '%' not in url:
+        parsed = urlparse(url)
+        encoded_path = quote(parsed.path, safe='/:@!$&\'()*+,;=-._~[]')
+        url = urlunparse(parsed._replace(path=encoded_path))
+
+    req = Request(url, headers=headers)
+    try:
+        resp = urlopen(req, timeout=timeout)
+        total = int(resp.headers.get('Content-Length', 0))
+        downloaded = 0
+        start = time.time()
+        with open(dest_path, 'wb') as f:
+            while True:
+                chunk = resp.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                f.write(chunk)
+                downloaded += len(chunk)
+                if not quiet:
+                    elapsed = time.time() - start
+                    speed = downloaded / elapsed if elapsed > 0 else 0
+                    if total > 0:
+                        pct = downloaded / total * 100
+                        eta = (total - downloaded) / speed if speed > 0 else 0
+                        print(f"\r    {pct:.0f}% {downloaded/1048576:.1f}/{total/1048576:.1f} MB "
+                              f"({speed/1048576:.1f} MB/s, ETA {eta:.0f}s)  ", end="", flush=True)
+                    else:
+                        print(f"\r    {downloaded/1048576:.1f} MB ({speed/1048576:.1f} MB/s)  ",
+                              end="", flush=True)
+        if not quiet:
+            elapsed = time.time() - start
+            speed = downloaded / elapsed if elapsed > 0 else 0
+            print(f"\r    Done: {downloaded/1048576:.1f} MB ({speed/1048576:.1f} MB/s)       ")
+        return True
+    except HTTPError as e:
+        if not quiet:
+            log.error(f"    Download HTTP {e.code} ({e.reason}): {url}")
+        Path(dest_path).unlink(missing_ok=True)
+        return False
+    except URLError as e:
+        if not quiet:
+            log.error(f"    Download connection error ({e.reason}): {url}")
+        Path(dest_path).unlink(missing_ok=True)
+        return False
+    except (OSError, TimeoutError) as e:
+        if not quiet:
+            log.error(f"    Download {type(e).__name__}: {e} -- {url}")
+        try:
+            p = Path(dest_path)
+            if p.exists() and p.stat().st_size == 0:
+                p.unlink()
+        except OSError:
+            pass
+        return False
+
+
+# Convenience type-dispatch mapping (downloader $type -> handler key)
+TYPE_MAP = {
+    'GameFileSource': 'game',
+    'WabbajackCDN': 'http',
+    'HttpDownloader': 'http',
+    'MediaFire': 'mediafire',
+    'MegaDownloader': 'mega',
+    'GoogleDrive': 'gdrive',
+    'NexusDownloader': 'nexus',
+    'ManualDownloader': 'manual',
+}
+
+
+def classify_archive(archive):
+    """Return the handler key for an archive based on its State.$type."""
+    state_type = archive.get('State', {}).get('$type', '')
+    for key, handler in TYPE_MAP.items():
+        if key in state_type:
+            return handler
+    return 'unknown'

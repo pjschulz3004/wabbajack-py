@@ -1,0 +1,455 @@
+"""Modlist installer -- orchestrates downloads, extraction, and file placement."""
+import re, time, shutil, logging
+from pathlib import Path
+from collections import defaultdict
+
+from .modlist import WabbajackModlist
+from .finder import CaseInsensitiveFinder
+from .cache import ArchiveCache
+from .hash import verify_archive
+from .downloaders import download_with_progress, classify_archive, MAX_RETRIES
+from .downloaders.cdn import download_wabbajack_cdn
+from .downloaders.nexus import NexusClient, download_nexus_files
+from .downloaders.mediafire import download_mediafire_files
+from .downloaders.mega import download_mega_files
+from .downloaders.gdrive import download_gdrive_files
+
+log = logging.getLogger(__name__)
+
+
+class ModlistInstaller:
+    """Full modlist installer: download, extract, place."""
+
+    def __init__(self, modlist, output_dir, downloads_dir, game_dir,
+                 nexus_key=None, workers=12, cache_dir=None, verify_hashes=False):
+        self.ml = modlist
+        self.output = Path(output_dir)
+        self.downloads = Path(downloads_dir)
+        self.game_dir = Path(game_dir)
+        self.workers = workers
+        self.verify_hashes = verify_hashes
+        self.nexus = NexusClient(nexus_key) if nexus_key else None
+
+        self.output.mkdir(parents=True, exist_ok=True)
+        self.downloads.mkdir(parents=True, exist_ok=True)
+
+        self.archive_by_hash = {a['Hash']: a for a in self.ml.archives}
+
+        log.info("Building game file index...")
+        self.game_finder = CaseInsensitiveFinder(self.game_dir)
+
+        self._refresh_downloads_index()
+
+        self.cache_dir = Path(cache_dir) if cache_dir else self.output.parent / '.wj-cache'
+        self.archive_cache = ArchiveCache(self.cache_dir)
+        self.inline_dir = self.cache_dir / '_inline'
+
+        self.stats = defaultdict(int)
+        self.failed_downloads = []
+        self.hash_mismatches = []
+
+    def _refresh_downloads_index(self):
+        self.downloads_index = {}
+        if self.downloads.exists():
+            for f in self.downloads.iterdir():
+                if f.is_file():
+                    self.downloads_index[f.name] = f
+                    self.downloads_index[f.name.lower()] = f
+
+    def _is_archive_present(self, archive):
+        name = archive['Name']
+        expected_size = archive.get('Size', 0)
+
+        for key in (name, name.lower()):
+            if key in self.downloads_index:
+                path = self.downloads_index[key]
+                if path.exists():
+                    actual_size = path.stat().st_size
+                    if expected_size == 0 or actual_size == expected_size:
+                        return True
+                    if expected_size > 0 and actual_size >= expected_size * 0.95:
+                        return True
+
+        state_type = archive['State'].get('$type', '')
+        if 'GameFileSource' in state_type:
+            game_file = archive['State'].get('GameFile', '')
+            if self.game_finder.find(game_file):
+                return True
+        return False
+
+    def find_archive_path(self, archive_hash):
+        info = self.archive_by_hash.get(archive_hash)
+        if not info:
+            return None
+        state_type = info['State'].get('$type', '')
+        name = info['Name']
+
+        if 'GameFileSource' in state_type:
+            found = self.game_finder.find(info['State'].get('GameFile', ''))
+            if found:
+                return found
+
+        for key in (name, name.lower()):
+            if key in self.downloads_index:
+                p = self.downloads_index[key]
+                if p.exists() and p.stat().st_size > 0:
+                    return p
+        return None
+
+    def _register_download(self, archive):
+        name = archive['Name']
+        path = self.downloads / name
+        if path.exists():
+            self.downloads_index[name] = path
+            self.downloads_index[name.lower()] = path
+            # Optional hash verification
+            if self.verify_hashes:
+                result = verify_archive(path, archive.get('Hash'), name)
+                if not result.ok:
+                    self.hash_mismatches.append(result)
+
+    # ── Downloads ─────────────────────────────────────────────────────────
+
+    def _download_game_files(self, archives):
+        if not archives:
+            return
+        log.info(f"\n--- Copying {len(archives)} game files ---")
+        ok = 0
+        for a in archives:
+            game_file = a['State'].get('GameFile', '')
+            src = self.game_finder.find(game_file)
+            if src:
+                dest = self.downloads / a['Name']
+                try:
+                    shutil.copy2(src, dest)
+                    self._register_download(a)
+                    ok += 1
+                except (OSError, PermissionError) as e:
+                    log.error(f"  Copy failed: {src} -> {dest}: {e}")
+                    self.failed_downloads.append(a)
+            else:
+                log.warning(f"  NOT FOUND in game dir: {game_file}")
+                self.failed_downloads.append(a)
+        log.info(f"  Game files: {ok}/{len(archives)} copied")
+
+    def _download_http_files(self, archives):
+        if not archives:
+            return
+        log.info(f"\n--- Downloading {len(archives)} HTTP/CDN files ---")
+        ok = 0
+        for i, a in enumerate(archives):
+            url = a['State'].get('Url', '')
+            if not url:
+                m = re.search(r'directURL=(.*)', a.get('Meta', ''))
+                if m:
+                    url = m.group(1).strip()
+            if not url:
+                log.warning(f"  [{i+1}/{len(archives)}] {a['Name']} - NO URL")
+                self.failed_downloads.append(a)
+                continue
+
+            dest = self.downloads / a['Name']
+            log.info(f"  [{i+1}/{len(archives)}] {a['Name']}")
+            is_cdn = 'authored-files.wabbajack.org' in url or 'WabbajackCDN' in a['State'].get('$type', '')
+
+            success = False
+            for attempt in range(MAX_RETRIES):
+                if is_cdn:
+                    if download_wabbajack_cdn(url, dest):
+                        self._register_download(a)
+                        ok += 1
+                        success = True
+                        break
+                else:
+                    if download_with_progress(url, dest):
+                        self._register_download(a)
+                        ok += 1
+                        success = True
+                        break
+                if attempt < MAX_RETRIES - 1:
+                    log.info(f"    Retry {attempt+2}/{MAX_RETRIES}...")
+                    time.sleep(2)
+            if not success:
+                self.failed_downloads.append(a)
+        log.info(f"  HTTP/CDN: {ok}/{len(archives)} downloaded")
+
+    def _skip_manual(self, archives):
+        if not archives:
+            return
+        log.warning(f"\n--- Skipping {len(archives)} manual downloads ---")
+        for a in archives:
+            log.warning(f"  SKIP: {a['Name']} ({a['State'].get('Url', '?')})")
+
+    def download_all(self, types=None, dry_run=False):
+        missing = [a for a in self.ml.archives if not self._is_archive_present(a)]
+        if not missing:
+            log.info(f"\nAll {len(self.ml.archives)} archives present!")
+            return
+
+        groups = defaultdict(list)
+        for a in missing:
+            groups[classify_archive(a)].append(a)
+
+        present = len(self.ml.archives) - len(missing)
+        total_size = sum(a.get('Size', 0) for a in missing)
+        log.info(f"\n{'='*60}")
+        log.info(f"Download Summary")
+        log.info(f"  Already present: {present}/{len(self.ml.archives)}")
+        log.info(f"  Need download:   {len(missing)} (~{total_size/1073741824:.1f} GB)")
+        for g in ['game', 'http', 'mediafire', 'mega', 'gdrive', 'nexus', 'manual']:
+            if g in groups:
+                items = groups[g]
+                size = sum(a.get('Size', 0) for a in items) / 1073741824
+                log.info(f"    {g:>12}: {len(items):>5} files ({size:.2f} GB)")
+        log.info(f"{'='*60}")
+
+        if dry_run:
+            log.info("\n[DRY RUN] No downloads performed")
+            return
+
+        dispatch = {
+            'game': self._download_game_files,
+            'http': self._download_http_files,
+            'mediafire': lambda a: download_mediafire_files(a, self.downloads, self._register_download, self.failed_downloads),
+            'mega': lambda a: download_mega_files(a, self.downloads, self._is_archive_present, self._register_download, self.failed_downloads),
+            'gdrive': lambda a: download_gdrive_files(a, self.downloads, self._register_download, self.failed_downloads),
+            'nexus': lambda a: download_nexus_files(a, self.downloads, self.nexus, self._register_download, self.failed_downloads),
+            'manual': self._skip_manual,
+        }
+
+        for t in ['game', 'http', 'mediafire', 'mega', 'gdrive', 'nexus', 'manual']:
+            if types and t not in types:
+                continue
+            if t in groups and groups[t]:
+                dispatch[t](groups[t])
+
+        self._refresh_downloads_index()
+
+        still_missing = [a for a in self.ml.archives if not self._is_archive_present(a)]
+        manual_count = len(groups.get('manual', []))
+        log.info(f"\n{'='*60}")
+        log.info(f"Download Complete")
+        log.info(f"  Archives ready:  {len(self.ml.archives) - len(still_missing)}/{len(self.ml.archives)}")
+        log.info(f"  Still missing:   {len(still_missing) - manual_count}")
+        log.info(f"  Skipped manual:  {manual_count}")
+        if self.hash_mismatches:
+            log.warning(f"  Hash mismatches: {len(self.hash_mismatches)}")
+            for r in self.hash_mismatches:
+                log.warning(f"    {r.message}")
+        if self.failed_downloads:
+            log.error(f"  Download errors: {len(self.failed_downloads)}")
+            failed_file = self.downloads / 'failed-downloads.txt'
+            with open(failed_file, 'w') as f:
+                for a in self.failed_downloads:
+                    t = a['State'].get('$type', '?')
+                    url = a['State'].get('Url', a['State'].get('Id', ''))
+                    f.write(f"{a['Name']}\t{t}\t{url}\n")
+            log.error(f"  Failed list: {failed_file}")
+        log.info(f"{'='*60}")
+
+    # ── Extraction & Placement ────────────────────────────────────────────
+
+    def _group_directives_by_archive(self):
+        groups = defaultdict(list)
+        inline_directives = []
+        patched_directives = []
+        bsa_directives = []
+        for d in self.ml.directives:
+            dtype = d.get('$type', '')
+            if dtype == 'FromArchive':
+                ahp = d.get('ArchiveHashPath', [])
+                if ahp:
+                    groups[ahp[0]].append(d)
+                else:
+                    inline_directives.append(d)
+            elif dtype in ('InlineFile', 'RemappedInlineFile'):
+                inline_directives.append(d)
+            elif dtype == 'PatchedFromArchive':
+                patched_directives.append(d)
+            elif dtype == 'CreateBSA':
+                bsa_directives.append(d)
+        return groups, inline_directives, patched_directives, bsa_directives
+
+    def _batch_extract_archives(self, archive_hashes):
+        items = []
+        for h in archive_hashes:
+            info = self.archive_by_hash.get(h)
+            if not info:
+                continue
+            name = info['Name']
+            if self.archive_cache.is_extracted(name):
+                continue
+            path = self.find_archive_path(h)
+            if not path:
+                continue
+            state_type = info['State'].get('$type', '')
+            if 'GameFileSource' in state_type:
+                gf = info['State'].get('GameFile', '')
+                if not any(gf.lower().endswith(ext) for ext in ('.bsa', '.ba2', '.zip', '.7z', '.rar')):
+                    continue
+            items.append((path, name))
+
+        ok, fail = self.archive_cache.batch_extract(items, workers=self.workers)
+        self.stats['archives_extracted'] += ok
+
+        for h in archive_hashes:
+            info = self.archive_by_hash.get(h)
+            if info:
+                self.archive_cache.index_archive(info['Name'])
+
+    def _place_files_from_archive(self, archive_hash, directives):
+        info = self.archive_by_hash.get(archive_hash)
+        if not info:
+            self.stats['fail'] += len(directives)
+            return
+
+        name = info['Name']
+        state_type = info['State'].get('$type', '')
+
+        if 'GameFileSource' in state_type:
+            gf = info['State'].get('GameFile', '')
+            if not any(gf.lower().endswith(ext) for ext in ('.bsa', '.ba2', '.zip', '.7z', '.rar')):
+                src = self.find_archive_path(archive_hash)
+                if not src:
+                    self.stats['fail'] += len(directives)
+                    return
+                for d in directives:
+                    dest = self.output / d.get('To', '').replace('\\', '/')
+                    try:
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(src, dest)
+                        self.stats['ok'] += 1
+                    except (OSError, PermissionError) as e:
+                        log.debug(f'    Place failed: {dest} -- {e}')
+                        self.stats['fail'] += 1
+                return
+
+        for d in directives:
+            ahp = d.get('ArchiveHashPath', [])
+            internal_path = '\\'.join(ahp[1:]) if len(ahp) > 1 else ''
+            dest = self.output / d.get('To', '').replace('\\', '/')
+
+            if not internal_path:
+                src = self.find_archive_path(archive_hash)
+            else:
+                src = self.archive_cache.find_file(name, internal_path)
+
+            if src and src.exists():
+                try:
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, dest)
+                    self.stats['ok'] += 1
+                except (OSError, PermissionError) as e:
+                    log.debug(f'    Place failed: {dest} -- {e}')
+                    self.stats['fail'] += 1
+            else:
+                self.stats['fail'] += 1
+
+    def install(self, skip_download=False, download_types=None, dry_run=False):
+        log.info(f"\n{'='*60}")
+        log.info(f"Installing: {self.ml.name} {self.ml.version}")
+        log.info(f"Output:     {self.output}")
+        log.info(f"Downloads:  {self.downloads}")
+        log.info(f"Game:       {self.game_dir}")
+        log.info(f"Workers:    {self.workers}")
+        log.info(f"Verify:     {self.verify_hashes}")
+        log.info(f"Cache:      {self.cache_dir}")
+        log.info(f"{'='*60}\n")
+
+        if not skip_download:
+            log.info("=== Step 1: Downloading missing archives ===")
+            self.download_all(types=download_types, dry_run=dry_run)
+            if dry_run:
+                return
+        else:
+            log.info("=== Step 1: Skipping downloads (--skip-download) ===")
+
+        log.info("\n=== Step 2: Analyzing directives ===")
+        groups, inlines, patched, bsas = self._group_directives_by_archive()
+        log.info(f"  {len(groups)} unique archives, {sum(len(v) for v in groups.values())} FromArchive")
+        log.info(f"  {len(inlines)} inline, {len(patched)} patched, {len(bsas)} BSA")
+
+        log.info("\n=== Step 3: Extracting inline data ===")
+        self.ml.extract_all_inline(self.inline_dir)
+
+        log.info("\n=== Step 4: Extracting archives & placing files ===")
+        all_hashes = list(groups.keys())
+        batch_size = 200
+        for batch_start in range(0, len(all_hashes), batch_size):
+            batch = all_hashes[batch_start:batch_start + batch_size]
+            batch_num = batch_start // batch_size + 1
+            total_batches = (len(all_hashes) + batch_size - 1) // batch_size
+            log.info(f"\n  Batch {batch_num}/{total_batches}")
+            self._batch_extract_archives(batch)
+            for h in batch:
+                self._place_files_from_archive(h, groups[h])
+            total_d = sum(len(v) for v in groups.values())
+            log.info(f"  Progress: {self.stats['ok']}/{total_d} placed, {self.stats['fail']} failed")
+
+        log.info(f"\n=== Step 5: Installing {len(inlines)} inline files ===")
+        for d in inlines:
+            source_id = d.get('SourceDataID', '')
+            dest = self.output / d.get('To', '').replace('\\', '/')
+            src = self.inline_dir / source_id
+            if src.exists():
+                try:
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, dest)
+                    self.stats['ok'] += 1
+                except (OSError, PermissionError) as e:
+                    log.debug(f'    Place failed: {dest} -- {e}')
+                    self.stats['fail'] += 1
+            else:
+                self.stats['fail'] += 1
+
+        log.info(f"\n=== Step 6: Installing {len(patched)} patched files (base copy) ===")
+        for d in patched:
+            ahp = d.get('ArchiveHashPath', [])
+            dest = self.output / d.get('To', '').replace('\\', '/')
+            if not ahp:
+                self.stats['fail'] += 1
+                continue
+            archive_hash = ahp[0]
+            internal_path = '\\'.join(ahp[1:]) if len(ahp) > 1 else ''
+            info = self.archive_by_hash.get(archive_hash)
+            if not info:
+                self.stats['fail'] += 1
+                continue
+            src = None
+            if internal_path:
+                src = self.archive_cache.find_file(info['Name'], internal_path)
+            if not src:
+                src = self.find_archive_path(archive_hash)
+            if src and src.exists():
+                try:
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, dest)
+                    self.stats['ok'] += 1
+                except (OSError, PermissionError) as e:
+                    log.debug(f'    Place failed: {dest} -- {e}')
+                    self.stats['fail'] += 1
+            else:
+                self.stats['fail'] += 1
+
+        if bsas:
+            log.info(f"\n=== Step 7: BSA creation ({len(bsas)} archives) ===")
+            bsa_log = self.output / 'bsa-todo.txt'
+            with open(bsa_log, 'w') as f:
+                for d in bsas:
+                    dest_name = d.get('To', 'unknown.bsa')
+                    states = d.get('FileStates', [])
+                    log.info(f"  TODO: {dest_name} ({len(states)} files)")
+                    f.write(f"{dest_name}\t{len(states)} files\n")
+                    self.stats['bsa'] += 1
+
+        pct = self.stats['ok'] / max(1, self.stats['ok'] + self.stats['fail']) * 100
+        log.info(f"\n{'='*60}")
+        log.info(f"Installation complete: {self.ml.name}")
+        log.info(f"  Files placed:     {self.stats['ok']}")
+        log.info(f"  Failed:           {self.stats['fail']}")
+        log.info(f"  BSAs needed:      {self.stats['bsa']}")
+        log.info(f"  Extracted:        {self.stats['archives_extracted']}")
+        log.info(f"  Success rate:     {pct:.1f}%")
+        if self.hash_mismatches:
+            log.warning(f"  Hash mismatches:  {len(self.hash_mismatches)}")
+        log.info(f"{'='*60}")

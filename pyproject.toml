@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "wabbajack-py"
+version = "0.1.0"
+description = "Cross-platform Wabbajack modlist installer"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "Paul" }]
+keywords = ["wabbajack", "modding", "skyrim", "modlist", "installer"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Games/Entertainment",
+]
+
+dependencies = [
+    "click>=8.0",
+    "xxhash>=3.0",
+]
+
+[project.optional-dependencies]
+gdrive = ["gdown>=5.0"]
+
+[project.scripts]
+wabbajack-py = "wabbajack.cli:main"
+
+[project.urls]
+Repository = "https://github.com/your-username/wabbajack-py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wabbajack"]
