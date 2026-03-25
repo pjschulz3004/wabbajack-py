@@ -261,6 +261,69 @@ def list_games():
     log.info(f"\n{found}/{len(GAME_DIRS)} games detected")
 
 
+@main.command('load-order')
+@click.argument('game_type')
+@click.option('--game-dir', type=click.Path(exists=True), help='Game install directory')
+@click.option('--profile', type=click.Path(), help='MO2 profile directory')
+@click.option('--validate', is_flag=True, help='Check for missing masters')
+def load_order(game_type, game_dir, profile, validate):
+    """Show or validate mod load order for a game.
+
+    GAME_TYPE: SkyrimSpecialEdition, BaldursGate3, Cyberpunk2077, StardewValley, etc.
+    """
+    from .loadorder import get_load_order, LOAD_ORDER_CLASSES
+
+    if game_type == 'list':
+        log.info("Supported games for load order management:")
+        for gt in sorted(LOAD_ORDER_CLASSES.keys()):
+            log.info(f"  {gt}")
+        return
+
+    if not game_dir:
+        game_dir = detect_game_dir(game_type)
+        if not game_dir:
+            log.error(f"Could not auto-detect {game_type}. Pass --game-dir.")
+            raise SystemExit(1)
+
+    lo = get_load_order(game_type, Path(game_dir), Path(profile) if profile else None)
+    lo.load()
+    s = lo.summary()
+
+    log.info(f"\n{game_type} Load Order")
+    log.info(f"  Mods:    {s['enabled_mods']}/{s['total_mods']} enabled")
+    log.info(f"  Plugins: {s['enabled_plugins']}/{s['total_plugins']} enabled")
+
+    if lo.mods:
+        log.info(f"\n  Mod Priority (asset override order):")
+        for m in lo.mods[:50]:
+            state = '+' if m.enabled else '-'
+            log.info(f"    {state} {m.name}")
+        if len(lo.mods) > 50:
+            log.info(f"    ... and {len(lo.mods) - 50} more")
+
+    if lo.plugins:
+        log.info(f"\n  Plugin Load Order:")
+        for p in lo.plugins[:50]:
+            flags = ''
+            if p.is_master:
+                flags += ' [ESM]'
+            if p.is_light:
+                flags += ' [ESL]'
+            state = '*' if p.enabled else ' '
+            log.info(f"    {state} {p.filename}{flags}")
+        if len(lo.plugins) > 50:
+            log.info(f"    ... and {len(lo.plugins) - 50} more")
+
+    if validate and hasattr(lo, 'validate_load_order'):
+        errors = lo.validate_load_order()
+        if errors:
+            log.warning(f"\n  Validation Issues ({len(errors)}):")
+            for err in errors:
+                log.warning(f"    ! {err}")
+        else:
+            log.info(f"\n  Validation: OK (no missing masters)")
+
+
 @main.command('check-update')
 def check_update():
     """Check for available updates."""

@@ -44,4 +44,7 @@ export const api = {
   nexusLogout: () => post<any>('/auth/nexus/logout'),
   checkUpdate: () => get<any>('/update/check'),
   applyUpdate: () => post<any>('/update/apply'),
+  loadOrderSupported: () => get<any>('/loadorder/supported'),
+  loadOrder: (gameType: string) => get<any>(`/loadorder/${gameType}`),
+  saveLoadOrder: (gameType: string, data: any) => put<any>(`/loadorder/${gameType}`, data),
 };

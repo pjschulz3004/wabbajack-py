@@ -242,6 +242,64 @@ async def nexus_set_key(req: NexusKeyRequest):
     return get_nexus_status()
 
 
+# ── Load Order ───────────────────────────────────────────────────────
+
+@router.get("/loadorder/{game_type}")
+async def load_order_get(game_type: str, game_dir: str = '', profile: str = ''):
+    """Get load order for a game."""
+    from ..loadorder import get_load_order, LOAD_ORDER_CLASSES
+    from ..platform import detect_game_dir
+
+    if game_type == 'supported':
+        return {"games": list(LOAD_ORDER_CLASSES.keys())}
+
+    gd = game_dir or detect_game_dir(game_type)
+    if not gd:
+        raise HTTPException(404, f"Could not find {game_type} installation")
+
+    lo = get_load_order(game_type, Path(gd), Path(profile) if profile else None)
+    lo.load()
+
+    errors = lo.validate_load_order() if hasattr(lo, 'validate_load_order') else []
+
+    return {
+        **lo.summary(),
+        'mods': [{'name': m.name, 'enabled': m.enabled, 'priority': m.priority} for m in lo.mods],
+        'plugins': [{'filename': p.filename, 'enabled': p.enabled,
+                      'is_master': p.is_master, 'is_light': p.is_light,
+                      'masters': p.masters} for p in lo.plugins],
+        'errors': errors,
+    }
+
+
+class LoadOrderUpdate(BaseModel):
+    mods: list[dict] | None = None
+    plugins: list[dict] | None = None
+
+
+@router.put("/loadorder/{game_type}")
+async def load_order_update(game_type: str, req: LoadOrderUpdate,
+                            game_dir: str = '', profile: str = ''):
+    """Update load order for a game."""
+    from ..loadorder import get_load_order, ModEntry, PluginEntry
+    from ..platform import detect_game_dir
+
+    gd = game_dir or detect_game_dir(game_type)
+    if not gd:
+        raise HTTPException(404, f"Could not find {game_type} installation")
+
+    lo = get_load_order(game_type, Path(gd), Path(profile) if profile else None)
+    lo.load()
+
+    if req.mods is not None:
+        lo.mods = [ModEntry(m['name'], m.get('enabled', True), i) for i, m in enumerate(req.mods)]
+    if req.plugins is not None:
+        lo.plugins = [PluginEntry(p['filename'], p.get('enabled', True)) for p in req.plugins]
+
+    lo.save()
+    return {"status": "saved", **lo.summary()}
+
+
 # ── Updates ──────────────────────────────────────────────────────────
 
 @router.get("/update/check")
