@@ -43,6 +43,28 @@ def main(ctx, verbose, log_file):
 
 
 @main.command()
+@click.option('--port', default=6969, help='Port for web UI')
+@click.option('--no-browser', is_flag=True, help='Do not open browser on start')
+@click.option('--host', default='127.0.0.1', help='Bind address')
+def serve(port, no_browser, host):
+    """Launch the web GUI."""
+    import uvicorn
+    from .web import create_app
+
+    app = create_app()
+
+    if not no_browser:
+        import threading, webbrowser, time as _time
+        def open_browser():
+            _time.sleep(1.5)
+            webbrowser.open(f"http://{host}:{port}")
+        threading.Thread(target=open_browser, daemon=True).start()
+
+    log.info(f"Starting wabbajack-py web UI on http://{host}:{port}")
+    uvicorn.run(app, host=host, port=port, log_level="warning")
+
+
+@main.command()
 @click.argument('wabbajack', type=click.Path(exists=True))
 def info(wabbajack):
     """Show modlist details."""
