@@ -33,6 +33,7 @@ def download_mega_files(archives, downloads_dir, is_present_fn, register_fn, fai
                 failed_list.append(a)
                 continue
             if is_present_fn(a):
+                register_fn(a)
                 ok += 1
             else:
                 log.warning(f"    megadl succeeded but file not found at expected name")

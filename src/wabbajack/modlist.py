@@ -38,8 +38,13 @@ class WabbajackModlist:
     def modlist(self):
         if self._modlist is None:
             log.info("Parsing modlist JSON...")
-            with self.zf.open('modlist') as f:
-                self._modlist = json.load(f)
+            try:
+                with self.zf.open('modlist') as f:
+                    self._modlist = json.load(f)
+            except KeyError:
+                raise ValueError(f"No 'modlist' entry found in {self.path} -- not a valid .wabbajack file")
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Corrupt modlist JSON in {self.path}: {e}")
         return self._modlist
 
     @property
@@ -88,9 +93,12 @@ class WabbajackModlist:
             if not str(target).startswith(str(output_dir)):
                 log.warning(f"Skipping path traversal attempt: {name}")
                 continue
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with self.zf.open(name) as src, open(target, 'wb') as dst:
-                shutil.copyfileobj(src, dst)
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with self.zf.open(name) as src, open(target, 'wb') as dst:
+                    shutil.copyfileobj(src, dst)
+            except (OSError, KeyError) as e:
+                log.warning(f"Failed to extract inline {name}: {type(e).__name__}: {e}")
         return len(names)
 
     def archive_type_counts(self):

@@ -18,13 +18,32 @@ class ProfileManager:
         self.profiles_path = self.base / PROFILES_FILE
         self._data = self._load()
 
+    _DEFAULTS = {'active': None, 'shared_downloads': '', 'profiles': {}}
+
     def _load(self):
-        if self.profiles_path.exists():
-            return json.loads(self.profiles_path.read_text())
-        return {'active': None, 'shared_downloads': str(self.base / 'WabbajackDownloads'), 'profiles': {}}
+        if not self.profiles_path.exists():
+            defaults = dict(self._DEFAULTS)
+            defaults['shared_downloads'] = str(self.base / 'WabbajackDownloads')
+            return defaults
+        try:
+            data = json.loads(self.profiles_path.read_text())
+            if not isinstance(data.get('profiles'), dict):
+                raise ValueError("invalid profiles structure")
+            return data
+        except (json.JSONDecodeError, ValueError, OSError) as e:
+            log.warning(f"Profile data corrupted ({e}), resetting to defaults: {self.profiles_path}")
+            defaults = dict(self._DEFAULTS)
+            defaults['shared_downloads'] = str(self.base / 'WabbajackDownloads')
+            return defaults
 
     def _save(self):
-        self.profiles_path.write_text(json.dumps(self._data, indent=2))
+        tmp = self.profiles_path.with_suffix('.tmp')
+        try:
+            tmp.write_text(json.dumps(self._data, indent=2))
+            tmp.replace(self.profiles_path)  # atomic on POSIX
+        except OSError as e:
+            log.error(f"Failed to save profiles: {e}")
+            tmp.unlink(missing_ok=True)
 
     @property
     def shared_downloads(self):
@@ -39,19 +58,21 @@ class ProfileManager:
         return self._data.get('profiles', {})
 
     def register(self, name, wabbajack_path, output_dir, game_dir):
-        ml = WabbajackModlist(wabbajack_path)
-        archive_hashes = [a['Hash'] for a in ml.archives]
+        with WabbajackModlist(wabbajack_path) as ml:
+            title, version, game = ml.name, ml.version, ml.game
+            archive_hashes = [a['Hash'] for a in ml.archives]
+            archive_count = len(ml.archives)
         self._data['profiles'][name] = {
-            'title': ml.name, 'version': ml.version, 'game': ml.game,
+            'title': title, 'version': version, 'game': game,
             'wabbajack': str(wabbajack_path), 'output': str(output_dir),
-            'game_dir': str(game_dir), 'archive_count': len(ml.archives),
+            'game_dir': str(game_dir), 'archive_count': archive_count,
             'archive_hashes': archive_hashes,
             'installed_at': time.strftime('%Y-%m-%d %H:%M'),
         }
         if not self._data['active']:
             self._data['active'] = name
         self._save()
-        log.info(f"Registered profile: {name} ({ml.name} v{ml.version})")
+        log.info(f"Registered profile: {name} ({title} v{version})")
 
     def switch(self, name):
         if name not in self._data['profiles']:
@@ -76,8 +97,8 @@ class ProfileManager:
         }
 
         if new_wabbajack_path:
-            ml = WabbajackModlist(new_wabbajack_path)
-            new_hashes = {a['Hash'] for a in ml.archives}
+            with WabbajackModlist(new_wabbajack_path) as ml:
+                new_hashes = {a['Hash'] for a in ml.archives}
             reusable = new_hashes & set(all_hashes.keys())
             new_only = new_hashes - set(all_hashes.keys())
             reusable_size = sum(a.get('Size', 0) for a in ml.archives if a['Hash'] in reusable)

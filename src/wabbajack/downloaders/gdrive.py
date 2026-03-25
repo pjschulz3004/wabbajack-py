@@ -59,7 +59,16 @@ def _download_gdrive_urllib(file_id, dest_path):
                     print(f"\r    {downloaded/1048576:.1f} MB ({speed/1048576:.1f} MB/s)  ",
                           end="", flush=True)
         print()
-        return dest_path.exists() and dest_path.stat().st_size > 1000
+        if not dest_path.exists() or dest_path.stat().st_size < 1000:
+            return False
+        # Check for HTML error pages (quota exceeded, file removed, etc.)
+        with open(dest_path, 'rb') as check:
+            header = check.read(64)
+            if header.lstrip().startswith((b'<!DOCTYPE', b'<html', b'<HTML')):
+                log.error(f"    Google Drive returned HTML error page instead of file (id={file_id})")
+                dest_path.unlink(missing_ok=True)
+                return False
+        return True
     except (HTTPError, URLError, OSError) as e:
         log.error(f"    Google Drive urllib failed for id={file_id}: {type(e).__name__}: {e}")
         return False

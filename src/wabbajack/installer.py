@@ -129,7 +129,9 @@ class ModlistInstaller:
             shutil.copy2(src, dest)
             return True
         except (OSError, PermissionError) as e:
-            log.debug(f'    Place failed: {dest} -- {e}')
+            # First 20 failures at WARNING (visible), rest at DEBUG (log file only)
+            lvl = logging.WARNING if self.stats['fail'] < 20 else logging.DEBUG
+            log.log(lvl, f'    Place failed: {dest} -- {e}')
             return False
 
     # ── Downloads ─────────────────────────────────────────────────────────

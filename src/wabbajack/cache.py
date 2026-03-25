@@ -30,8 +30,15 @@ def extract_archive_worker(args):
                             return (name, False, 0, f'path traversal in ZIP: {info.filename}')
                     zf.extractall(extract_dir)
                 return (name, True, len(os.listdir(extract_dir)), '')
-            except (zipfile.BadZipFile, PermissionError, OSError):
-                pass  # Fall through to 7z
+            except zipfile.BadZipFile:
+                pass  # Not a valid ZIP, fall through to 7z
+            except PermissionError as e:
+                return (name, False, 0, f'permission denied: {e}')
+            except OSError as e:
+                # Disk full, too many open files, etc. -- don't retry with 7z
+                if e.errno in (28, 24, 30):  # ENOSPC, EMFILE, EROFS
+                    return (name, False, 0, f'{type(e).__name__}: {e}')
+                pass  # Other OSError (e.g. encoding issue) -- try 7z
 
         result = subprocess.run(
             ['7z', 'x', '-y', '-bso0', '-bsp0', f'-o{extract_dir}', str(archive_path)],
@@ -143,7 +150,7 @@ class ArchiveCache:
                 completed += 1
                 if not success:
                     failed += 1
-                    log.debug(f"  Extract failed: {name}: {err_msg}")
+                    log.warning(f"  Extract failed: {name}: {err_msg}")
                 if completed % 50 == 0:
                     log.info(f"    Extracted {completed}/{len(to_extract)} ({failed} failed)")
 
