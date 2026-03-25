@@ -301,45 +301,52 @@ class ModlistInstaller:
                 self.failed_downloads.append(a)
         log.info(f"  Game files: {ok}/{len(archives)} copied")
 
+    HTTP_PARALLEL = 4  # Concurrent HTTP downloads
+
+    def _download_http_one(self, archive):
+        """Download a single HTTP/CDN archive. Returns (archive, success)."""
+        url = archive['State'].get('Url', '')
+        if not url:
+            m = re.search(r'directURL=(.*)', archive.get('Meta', ''))
+            if m:
+                url = m.group(1).strip()
+        if not url:
+            return archive, False
+
+        dest = self.downloads / archive['Name']
+        is_cdn = 'authored-files.wabbajack.org' in url or 'WabbajackCDN' in archive['State'].get('$type', '')
+
+        for attempt in range(MAX_RETRIES):
+            if is_cdn:
+                if download_wabbajack_cdn(url, dest):
+                    return archive, True
+            else:
+                if download_with_progress(url, dest, quiet=True):
+                    return archive, True
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(2)
+        return archive, False
+
     def _download_http_files(self, archives):
         if not archives:
             return
-        log.info(f"\n--- Downloading {len(archives)} HTTP/CDN files ---")
+        log.info(f"\n--- Downloading {len(archives)} HTTP/CDN files ({self.HTTP_PARALLEL} parallel) ---")
         ok = 0
-        for i, a in enumerate(archives):
-            url = a['State'].get('Url', '')
-            if not url:
-                m = re.search(r'directURL=(.*)', a.get('Meta', ''))
-                if m:
-                    url = m.group(1).strip()
-            if not url:
-                log.warning(f"  [{i+1}/{len(archives)}] {a['Name']} - NO URL")
-                self.failed_downloads.append(a)
-                continue
+        completed = 0
 
-            dest = self.downloads / a['Name']
-            log.info(f"  [{i+1}/{len(archives)}] {a['Name']}")
-            is_cdn = 'authored-files.wabbajack.org' in url or 'WabbajackCDN' in a['State'].get('$type', '')
-
-            success = False
-            for attempt in range(MAX_RETRIES):
-                if is_cdn:
-                    if download_wabbajack_cdn(url, dest):
-                        self._register_download(a)
-                        ok += 1
-                        success = True
-                        break
+        with ThreadPoolExecutor(max_workers=self.HTTP_PARALLEL) as pool:
+            futures = {pool.submit(self._download_http_one, a): a for a in archives}
+            for future in as_completed(futures):
+                completed += 1
+                archive, success = future.result()
+                if success:
+                    self._register_download(archive)
+                    ok += 1
+                    size_mb = archive.get('Size', 0) / 1048576
+                    log.info(f"  [{completed}/{len(archives)}] OK: {archive['Name'][:70]} ({size_mb:.1f} MB)")
                 else:
-                    if download_with_progress(url, dest):
-                        self._register_download(a)
-                        ok += 1
-                        success = True
-                        break
-                if attempt < MAX_RETRIES - 1:
-                    log.info(f"    Retry {attempt+2}/{MAX_RETRIES}...")
-                    time.sleep(2)
-            if not success:
-                self.failed_downloads.append(a)
+                    self.failed_downloads.append(archive)
+                    log.warning(f"  [{completed}/{len(archives)}] FAIL: {archive['Name'][:70]}")
         log.info(f"  HTTP/CDN: {ok}/{len(archives)} downloaded")
 
     def _skip_manual(self, archives):

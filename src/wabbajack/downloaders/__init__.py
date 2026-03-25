@@ -58,21 +58,45 @@ def download_with_progress(url, dest_path, timeout=DOWNLOAD_TIMEOUT, quiet=False
 
 
 def _download_requests(session, url, dest_path, timeout, quiet):
-    """Download using requests.Session (HTTP keep-alive, connection pooling)."""
+    """Download using requests.Session with resume support and connection pooling."""
+    dest = Path(dest_path)
+    headers = {}
+    mode = 'wb'
+    resume_offset = 0
+
+    # Resume partial download if .part file exists
+    part_path = dest.with_suffix(dest.suffix + '.part')
+    if part_path.exists():
+        resume_offset = part_path.stat().st_size
+        if resume_offset > 0:
+            headers['Range'] = f'bytes={resume_offset}-'
+            mode = 'ab'
+            if not quiet:
+                log.debug(f"    Resuming from {resume_offset/1048576:.1f} MB")
+
     try:
-        resp = session.get(url, stream=True, timeout=timeout, allow_redirects=True)
+        resp = session.get(url, stream=True, timeout=timeout, allow_redirects=True,
+                           headers=headers)
         resp.raise_for_status()
-        total = int(resp.headers.get('Content-Length', 0))
-        downloaded = 0
+
+        # Handle resume response
+        if resp.status_code == 206:  # Partial content -- resume worked
+            total = int(resp.headers.get('Content-Range', '').split('/')[-1] or 0)
+        else:
+            total = int(resp.headers.get('Content-Length', 0))
+            resume_offset = 0  # Server doesn't support resume
+            mode = 'wb'
+
+        downloaded = resume_offset
         start = time.time()
-        with open(dest_path, 'wb') as f:
+        with open(part_path, mode) as f:
             for chunk in resp.iter_content(chunk_size=CHUNK_SIZE):
                 if chunk:
                     f.write(chunk)
                     downloaded += len(chunk)
                     if not quiet:
                         elapsed = time.time() - start
-                        speed = downloaded / elapsed if elapsed > 0 else 0
+                        speed = (downloaded - resume_offset) / elapsed if elapsed > 0 else 0
                         if total > 0:
                             pct = downloaded / total * 100
                             eta = (total - downloaded) / speed if speed > 0 else 0
@@ -81,9 +105,12 @@ def _download_requests(session, url, dest_path, timeout, quiet):
                         else:
                             print(f"\r    {downloaded/1048576:.1f} MB ({speed/1048576:.1f} MB/s)  ",
                                   end="", flush=True)
+
+        # Rename .part to final name on success
+        part_path.rename(dest)
         if not quiet:
             elapsed = time.time() - start
-            speed = downloaded / elapsed if elapsed > 0 else 0
+            speed = (downloaded - resume_offset) / elapsed if elapsed > 0 else 0
             print(f"\r    Done: {downloaded/1048576:.1f} MB ({speed/1048576:.1f} MB/s)       ")
         return True
     except Exception as e:
@@ -93,7 +120,9 @@ def _download_requests(session, url, dest_path, timeout, quiet):
                 log.error(f"    Download HTTP {status}: {url}")
             else:
                 log.error(f"    Download {type(e).__name__}: {e} -- {url}")
-        Path(dest_path).unlink(missing_ok=True)
+        # Keep .part file for resume on retry -- only delete if empty
+        if part_path.exists() and part_path.stat().st_size == 0:
+            part_path.unlink(missing_ok=True)
         return False
 
 
