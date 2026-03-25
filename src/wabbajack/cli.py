@@ -94,7 +94,7 @@ def download(wabbajack, downloads, nexus_key, game_dir, dry_run, verify, types):
 @click.option('-o', '--output', required=True, type=click.Path(), help='Output directory')
 @click.option('-d', '--downloads', required=True, type=click.Path(), help='Downloads directory')
 @click.option('-g', '--game-dir', type=click.Path(exists=True), help='Game install directory')
-@click.option('-k', '--nexus-key', help='Nexus Mods API key')
+@click.option('-k', '--nexus-key', envvar='NEXUS_API_KEY', help='Nexus API key (or NEXUS_API_KEY env)')
 @click.option('-j', '--workers', default=12, help='Parallel extraction workers')
 @click.option('--cache-dir', type=click.Path(), help='Archive extraction cache directory')
 @click.option('--skip-download', is_flag=True, help='Skip download phase')

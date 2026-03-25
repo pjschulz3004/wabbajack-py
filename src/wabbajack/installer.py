@@ -192,14 +192,63 @@ class ModlistInstaller:
             except OSError as e:
                 log.warning(f"  Could not remap ModOrganizer.ini: {e}")
 
-        # Create output mods directory if referenced in settings
+        # Create standard MO2 subdirectories
         for subdir in ('mods', 'profiles', 'overwrite', 'crashDumps'):
             (self.output / subdir).mkdir(exist_ok=True)
+
+        # Write .meta files for downloaded archives (so MO2 knows their source)
+        self._write_meta_files()
+
+    def _write_meta_files(self):
+        """Write .meta INI files for downloads so MO2 tracks their source."""
+        wrote = 0
+        for a in self.ml.archives:
+            name = a['Name']
+            meta_path = self.downloads / (name + '.meta')
+            if meta_path.exists():
+                continue
+            path = self.downloads / name
+            if not path.exists():
+                continue
+
+            state = a['State']
+            state_type = state.get('$type', '')
+            lines = ['[General]', f'installed=true']
+
+            if 'NexusDownloader' in state_type:
+                game = state.get('GameName', 'skyrimspecialedition')
+                mod_id = state.get('ModID', 0)
+                file_id = state.get('FileID', 0)
+                lines.append(f'gameName={game}')
+                lines.append(f'modID={mod_id}')
+                lines.append(f'fileID={file_id}')
+            elif 'HttpDownloader' in state_type or 'WabbajackCDN' in state_type:
+                url = state.get('Url', '')
+                if url:
+                    lines.append(f'directURL={url}')
+            elif 'GoogleDrive' in state_type:
+                lines.append(f'directURL=https://drive.google.com/uc?id={state.get("Id", "")}')
+            elif 'MediaFire' in state_type:
+                lines.append(f'directURL={state.get("Url", "")}')
+            elif 'ModDB' in state_type:
+                lines.append(f'directURL={state.get("Url", "")}')
+            elif 'MegaDownloader' in state_type:
+                lines.append(f'directURL={state.get("Url", "")}')
+
+            try:
+                meta_path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+                wrote += 1
+            except OSError:
+                pass
+
+        if wrote:
+            log.info(f"  Wrote {wrote} .meta files for MO2")
 
     def _place_file(self, src, to_field):
         """Place a file from src to the output path derived from a directive's To field.
 
-        Validates against path traversal. Returns True on success.
+        Validates against path traversal. Skips if dest already matches source size.
+        Returns True on success.
         """
         dest = self.output / to_field.replace('\\', '/')
         try:
@@ -209,6 +258,16 @@ class ModlistInstaller:
                 return False
         except (OSError, ValueError):
             return False
+
+        # Skip if destination already exists with matching size (optimized re-install)
+        try:
+            src_size = src.stat().st_size
+            dest_size = dest.stat().st_size
+            if src_size == dest_size:
+                return True  # Already correct, skip copy
+        except OSError:
+            pass  # dest doesn't exist or src stat failed, proceed with copy
+
         try:
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(src, dest)
