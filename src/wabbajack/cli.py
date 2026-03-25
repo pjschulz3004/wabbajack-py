@@ -246,6 +246,104 @@ def list_games():
     log.info(f"\n{found}/{len(GAME_DIRS)} games detected")
 
 
+@main.command()
+@click.argument('wabbajack', type=click.Path(exists=True))
+@click.option('-d', '--downloads', required=True, type=click.Path(exists=True), help='Downloads directory')
+@click.option('--nexus-key', envvar='NEXUS_API_KEY', hidden=True, help='DEPRECATED: use NEXUS_API_KEY env var')
+@click.option('-g', '--game-dir', type=click.Path(exists=True), help='Game install directory')
+@click.option('--re-verify', is_flag=True, help='Re-verify repaired archives after download')
+def repair(wabbajack, downloads, nexus_key, game_dir, re_verify):
+    """Re-download failed or corrupt archives.
+
+    Reads the failed-downloads.txt in the downloads directory, or runs hash
+    verification to find mismatches, then re-downloads only the affected archives.
+    """
+    if not HAS_XXHASH:
+        log.error("xxhash not installed (pip install xxhash)")
+        raise SystemExit(1)
+
+    ml = WabbajackModlist(wabbajack)
+    dl_dir = Path(downloads)
+    log.info(f"{ml.name} v{ml.version} -- repair mode")
+
+    # Collect archives that need repair from multiple sources
+    to_repair = set()
+
+    # Source 1: failed-downloads.txt
+    failed_file = dl_dir / 'failed-downloads.txt'
+    if failed_file.exists():
+        for line in failed_file.read_text().splitlines():
+            name = line.split('\t')[0].strip()
+            if name:
+                to_repair.add(name)
+        log.info(f"  {len(to_repair)} archives from failed-downloads.txt")
+
+    # Source 2: hash verification mismatches
+    log.info(f"  Verifying archive hashes...")
+    mismatch = 0
+    missing = 0
+    for a in ml.archives:
+        name = a['Name']
+        expected = a.get('Hash', '')
+        path = dl_dir / name
+        if not path.exists():
+            path = dl_dir / name.lower()
+        if not path.exists() or path.stat().st_size == 0:
+            to_repair.add(name)
+            missing += 1
+            continue
+        if expected:
+            result = verify_archive(path, expected, name)
+            if not result.ok:
+                to_repair.add(name)
+                mismatch += 1
+
+    log.info(f"  {missing} missing, {mismatch} hash mismatches")
+    log.info(f"  Total to repair: {len(to_repair)} archives")
+
+    if not to_repair:
+        log.info("Nothing to repair. All archives are OK.")
+        return
+
+    # Filter the modlist archives to only those needing repair
+    repair_archives = [a for a in ml.archives if a['Name'] in to_repair]
+
+    # Delete the bad files so downloaders re-fetch them
+    for a in repair_archives:
+        path = dl_dir / a['Name']
+        if path.exists():
+            path.unlink()
+            log.debug(f"  Deleted: {a['Name']}")
+
+    # Run downloads for repair set
+    inst = ModlistInstaller(
+        modlist=ml,
+        output_dir=str(dl_dir.parent / '_repair_temp'),
+        downloads_dir=str(dl_dir),
+        game_dir=game_dir or '.',
+        nexus_key=nexus_key or '',
+        workers=4,
+    )
+    inst.download_all()
+
+    # Re-verify if requested
+    if re_verify:
+        log.info(f"\n  Re-verifying repaired archives...")
+        still_bad = 0
+        for a in repair_archives:
+            path = dl_dir / a['Name']
+            expected = a.get('Hash', '')
+            if path.exists() and expected:
+                result = verify_archive(path, expected, a['Name'])
+                if not result.ok:
+                    still_bad += 1
+                    log.warning(f"  Still bad: {a['Name']}: {result.message}")
+        if still_bad:
+            log.warning(f"\n  {still_bad} archives still have issues after repair")
+        else:
+            log.info(f"  All {len(repair_archives)} repaired archives verified OK")
+
+
 @main.command('load-order')
 @click.argument('game_type')
 @click.option('--game-dir', type=click.Path(exists=True), help='Game install directory')
