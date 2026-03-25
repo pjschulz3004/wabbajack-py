@@ -165,7 +165,8 @@
   }
 
   .filter-btn {
-    padding: 0.2rem 0.5rem;
+    padding: 0.375rem 0.625rem;
+    min-height: 32px;
     font-size: 0.65rem;
     font-weight: 600;
     text-transform: uppercase;

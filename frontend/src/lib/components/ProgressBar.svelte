@@ -116,7 +116,7 @@
       rgba(255, 255, 255, 0.12) 50%,
       transparent 100%
     );
-    animation: shimmer 1.8s ease-in-out infinite;
+    animation: bar-shimmer 1.8s ease-in-out infinite;
   }
 
   @keyframes bar-pulse {
@@ -124,7 +124,7 @@
     50% { filter: brightness(1.15); }
   }
 
-  @keyframes shimmer {
+  @keyframes bar-shimmer {
     0% { transform: translateX(-100%); }
     100% { transform: translateX(100%); }
   }
@@ -140,7 +140,7 @@
   }
 
   .progress-pct.inside {
-    color: #000;
+    color: #0a0a0f;
   }
 
   .progress-pct.outside {

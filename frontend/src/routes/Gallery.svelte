@@ -92,6 +92,7 @@
     <button
       class="nsfw-toggle"
       class:active={showNsfw}
+      aria-pressed={showNsfw}
       onclick={() => showNsfw = !showNsfw}
     >
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -114,11 +115,11 @@
     <div class="grid">
       {#each Array(9) as _}
         <div class="skeleton-card">
-          <div class="skeleton-banner animate-pulse"></div>
+          <div class="skeleton-banner"></div>
           <div class="skeleton-body">
-            <div class="skeleton-line w-75 animate-pulse"></div>
-            <div class="skeleton-line w-50 animate-pulse"></div>
-            <div class="skeleton-line w-full animate-pulse"></div>
+            <div class="skeleton-line w-75"></div>
+            <div class="skeleton-line w-50"></div>
+            <div class="skeleton-line w-full"></div>
           </div>
         </div>
       {/each}
@@ -258,7 +259,9 @@
 
   .skeleton-banner {
     aspect-ratio: 16 / 9;
-    background: var(--bg-tertiary);
+    background: linear-gradient(110deg, var(--bg-tertiary) 8%, var(--bg-secondary) 18%, var(--bg-tertiary) 33%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s linear infinite;
   }
 
   .skeleton-body {
@@ -271,7 +274,9 @@
   .skeleton-line {
     height: 0.75rem;
     border-radius: var(--radius-sm);
-    background: var(--bg-tertiary);
+    background: linear-gradient(110deg, var(--bg-tertiary) 8%, var(--bg-secondary) 18%, var(--bg-tertiary) 33%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s linear infinite;
   }
 
   .w-75 { width: 75%; }

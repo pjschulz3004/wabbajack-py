@@ -69,7 +69,7 @@
 <div class="profiles-page">
   <header class="page-header">
     <div class="header-text">
-      <h1>Profiles</h1>
+      <h2>Profiles</h2>
       {#if data?.shared_downloads}
         <p class="shared-path">
           <span class="label">Shared downloads:</span>
@@ -87,7 +87,7 @@
   </header>
 
   {#if error}
-    <div class="error-banner">
+    <div class="error-banner" role="alert">
       <span>{error}</span>
       <button class="btn btn-sm btn-ghost" onclick={() => { error = ''; }}>Dismiss</button>
     </div>
@@ -182,7 +182,7 @@
     gap: 1rem;
   }
 
-  .page-header h1 {
+  .page-header h2 {
     font-size: 1.5rem;
     font-weight: 700;
     color: var(--text-primary);
@@ -239,9 +239,7 @@
     animation: spin 0.8s linear infinite;
   }
 
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
+  /* spin keyframe from global app.css */
 
   .empty-state {
     display: flex;

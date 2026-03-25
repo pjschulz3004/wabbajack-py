@@ -98,7 +98,7 @@ async def websocket_endpoint(ws: WebSocket):
 
     drain_task = asyncio.create_task(drain())
 
-    VALID_COMMANDS = {"cancel", "pause", "resume", "skip_file", "manual_complete"}
+    VALID_COMMANDS = {"cancel", "pause", "resume", "skip_file", "manual_complete", "retry_failed"}
     MAX_MSG_SIZE = 4096
 
     try:
@@ -121,6 +121,11 @@ async def websocket_endpoint(ws: WebSocket):
             elif msg_type == "manual_complete":
                 name = str(msg.get("name", ""))[:256]
                 push_event("manual_complete", name=name)
+            elif msg_type == "retry_failed":
+                names = msg.get("names", [])
+                if isinstance(names, list):
+                    names = [str(n)[:256] for n in names[:100]]
+                    push_event("retry_failed", names=names)
     except WebSocketDisconnect:
         pass
     finally:

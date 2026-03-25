@@ -10,6 +10,7 @@
 
   let currentPage = $state<Page>('gallery');
   let selectedModlist = $state<any>(null);
+  let sidebarOpen = $state(false);
 
   function navigateToInstall(modlist?: any) {
     selectedModlist = modlist ?? null;
@@ -40,7 +41,10 @@
 
 <div class="app-shell">
   <!-- Sidebar -->
-  <aside class="sidebar">
+  {#if sidebarOpen}
+    <div class="sidebar-overlay" onclick={() => sidebarOpen = false} role="presentation"></div>
+  {/if}
+  <aside class="sidebar" class:open={sidebarOpen}>
     <div class="sidebar-header">
       <div class="logo">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" aria-hidden="true">
@@ -61,7 +65,7 @@
           class="nav-item"
           class:active={currentPage === item.id}
           aria-current={currentPage === item.id ? 'page' : undefined}
-          onclick={() => currentPage = item.id}
+          onclick={() => { currentPage = item.id; sidebarOpen = false; }}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d={item.icon} />
@@ -83,6 +87,11 @@
   <main class="main">
     <!-- Header bar -->
     <header class="header">
+      <button class="hamburger" onclick={() => sidebarOpen = !sidebarOpen} aria-label="Toggle navigation">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+        </svg>
+      </button>
       <h2 class="page-title">{navItems.find(n => n.id === currentPage)?.label ?? ''}</h2>
 
       {#if isInstalling}
@@ -117,6 +126,7 @@
   .app-shell {
     display: flex;
     height: 100vh;
+    height: 100dvh;
     overflow: hidden;
   }
 
@@ -173,6 +183,7 @@
     align-items: center;
     gap: 0.625rem;
     padding: 0.5rem 0.625rem;
+    min-height: 44px;
     border: none;
     border-radius: var(--radius-sm);
     background: transparent;
@@ -301,11 +312,65 @@
     text-align: right;
   }
 
+  /* ─── Hamburger ─── */
+  .hamburger {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  .hamburger:hover {
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+  }
+
+  .sidebar-overlay {
+    display: none;
+  }
+
   /* ─── Content area ─── */
   .content {
     flex: 1;
     overflow-y: auto;
     padding: 1rem 1.25rem;
+  }
+
+  @media (max-width: 768px) {
+    .hamburger { display: flex; }
+
+    .sidebar {
+      position: fixed;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      z-index: 100;
+      transform: translateX(-100%);
+      transition: transform 0.2s ease;
+    }
+
+    .sidebar.open {
+      transform: translateX(0);
+    }
+
+    .sidebar-overlay {
+      display: block;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 99;
+    }
+
+    .content {
+      padding: 0.75rem;
+    }
   }
 
 </style>

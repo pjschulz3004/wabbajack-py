@@ -80,12 +80,15 @@
     dlContainerHeight = tableWrap.clientHeight;
   }
 
-  let counts = $derived({
-    total: archives.length,
-    done: archives.filter(a => a.status === 'done').length,
-    downloading: archives.filter(a => a.status === 'downloading').length,
-    failed: archives.filter(a => a.status === 'failed').length,
-    pending: archives.filter(a => a.status === 'pending').length,
+  let counts = $derived.by(() => {
+    const c = { total: archives.length, done: 0, downloading: 0, failed: 0, pending: 0 };
+    for (const a of archives) {
+      if (a.status === 'done') c.done++;
+      else if (a.status === 'downloading') c.downloading++;
+      else if (a.status === 'failed') c.failed++;
+      else if (a.status === 'pending') c.pending++;
+    }
+    return c;
   });
 
   function statusOrder(s: string): number {
@@ -124,7 +127,7 @@
     const failed = archives.filter(a => a.status === 'failed').map(a => a.name);
     if (failed.length === 0) return;
     // Send retry via WS or API - use WS command
-    sendWs({ type: 'command', action: 'retry_failed', names: failed });
+    sendWs({ type: 'retry_failed', names: failed });
   }
 
   function exportFailed() {
@@ -156,7 +159,7 @@
         <span class="badge badge-error">{counts.failed} failed</span>
       {/if}
       {#if counts.pending > 0}
-        <span class="badge" style="background: var(--bg-tertiary); color: var(--text-secondary);">{counts.pending} pending</span>
+        <span class="badge badge-neutral">{counts.pending} pending</span>
       {/if}
     </div>
   </div>
@@ -435,10 +438,7 @@
     animation: spin 1s linear infinite;
   }
 
-  @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
+  /* spin keyframe from global app.css */
 
   .source-badge {
     display: inline-block;

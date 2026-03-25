@@ -208,16 +208,17 @@
     loadSettings();
     loadGames();
     loadNexus();
+    return () => { ssoPolling = false; };
   });
 </script>
 
 <div class="settings-page">
   <header class="page-header">
-    <h1>Settings</h1>
+    <h2>Settings</h2>
   </header>
 
   {#if settingsError}
-    <div class="error-banner">
+    <div class="error-banner" role="alert">
       <span>{settingsError}</span>
       <button class="btn btn-sm btn-ghost" onclick={() => { settingsError = ''; }}>Dismiss</button>
     </div>
@@ -348,7 +349,7 @@
       </div>
 
       {#if nexusError}
-        <div class="error-banner compact">
+        <div class="error-banner compact" role="alert">
           <span>{nexusError}</span>
           <button class="btn btn-sm btn-ghost" onclick={() => { nexusError = ''; }}>Dismiss</button>
         </div>
@@ -462,7 +463,7 @@
     margin-bottom: 1.5rem;
   }
 
-  .page-header h1 {
+  .page-header h2 {
     font-size: 1.5rem;
     font-weight: 700;
     color: var(--text-primary);
@@ -505,9 +506,7 @@
     animation: spin 0.8s linear infinite;
   }
 
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
+  /* spin keyframe from global app.css */
 
   /* Sections */
   .settings-section {
@@ -796,5 +795,12 @@
   .unsaved {
     color: var(--warning);
     font-weight: 500;
+  }
+
+  @media (max-width: 600px) {
+    .settings-page { padding: 1rem; }
+    .settings-section { padding: 1rem; }
+    .api-key-form { flex-direction: column; }
+    .nexus-status-row { flex-direction: column; gap: 0.75rem; }
   }
 </style>
