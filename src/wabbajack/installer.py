@@ -17,6 +17,7 @@ from .downloaders.gdrive import download_gdrive_files
 from .downloaders.moddb import download_moddb_files
 from .state import InstallState
 from .config import InstallConfig
+from .bsa import create_bsa, stage_bsa_files
 from .progress import print_install_complete, HAS_RICH
 
 log = logging.getLogger(__name__)
@@ -722,14 +723,30 @@ class ModlistInstaller:
 
         if bsas:
             log.info(f"\n=== Step 7: BSA creation ({len(bsas)} archives) ===")
-            bsa_log = self.output / 'bsa-todo.txt'
-            with open(bsa_log, 'w') as f:
-                for d in bsas:
-                    dest_name = d.get('To', 'unknown.bsa')
-                    states = d.get('FileStates', [])
-                    log.info(f"  TODO: {dest_name} ({len(states)} files)")
-                    f.write(f"{dest_name}\t{len(states)} files\n")
-                    self.stats['bsa'] += 1
+            bsa_ok = 0
+            bsa_fail = 0
+            for d in bsas:
+                dest_name = d.get('To', 'unknown.bsa')
+                file_states = d.get('FileStates', [])
+                bsa_state = d.get('State', {})
+                dest_path = self.output / dest_name.replace('\\', '/')
+
+                log.info(f"  BSA: {dest_name} ({len(file_states)} files)")
+
+                # Stage files for BSA creation
+                staging, count = stage_bsa_files(d, self.archive_cache, str(self.output), str(self.cache_dir))
+                if staging and count > 0:
+                    if create_bsa(staging, str(dest_path), bsa_state):
+                        bsa_ok += 1
+                    else:
+                        bsa_fail += 1
+                        log.warning(f"    BSA creation failed: {dest_name}")
+                else:
+                    bsa_fail += 1
+                    log.warning(f"    No files staged for BSA: {dest_name}")
+                self.stats['bsa'] += 1
+
+            log.info(f"  BSA: {bsa_ok} created, {bsa_fail} failed")
 
         log.info("\n=== Step 8: MO2 setup ===")
         self._setup_mo2()
