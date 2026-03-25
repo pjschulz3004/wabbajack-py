@@ -309,6 +309,44 @@ def load_order(game_type, game_dir, profile, validate):
             log.info(f"\n  Validation: OK (no missing masters)")
 
 
+@main.command('export-loadorder')
+@click.argument('game_type')
+@click.option('--game-dir', type=click.Path(exists=True), help='Game install directory')
+@click.option('--profile', type=click.Path(), help='MO2 profile directory')
+@click.option('-o', '--output', type=click.Path(), default='loadorder.json', help='Output JSON file')
+def export_loadorder(game_type, game_dir, profile, output):
+    """Export load order to a portable JSON file."""
+    from .loadorder import get_load_order
+    if not game_dir:
+        game_dir = detect_game_dir(game_type)
+        if not game_dir:
+            log.error(f"Could not auto-detect {game_type}. Pass --game-dir.")
+            raise SystemExit(1)
+    lo = get_load_order(game_type, Path(game_dir), Path(profile) if profile else None)
+    lo.load()
+    lo.export_json(Path(output))
+
+
+@main.command('import-loadorder')
+@click.argument('game_type')
+@click.argument('json_file', type=click.Path(exists=True))
+@click.option('--game-dir', type=click.Path(exists=True), help='Game install directory')
+@click.option('--profile', type=click.Path(), help='MO2 profile directory')
+def import_loadorder(game_type, json_file, game_dir, profile):
+    """Import load order from a portable JSON file and write to game files."""
+    from .loadorder import get_load_order
+    if not game_dir:
+        game_dir = detect_game_dir(game_type)
+        if not game_dir:
+            log.error(f"Could not auto-detect {game_type}. Pass --game-dir.")
+            raise SystemExit(1)
+    lo = get_load_order(game_type, Path(game_dir), Path(profile) if profile else None)
+    lo.import_json(Path(json_file))
+    lo.save()
+    s = lo.summary()
+    log.info(f"Applied: {s['enabled_mods']} mods, {s['enabled_plugins']} plugins")
+
+
 @main.command('check-update')
 def check_update():
     """Check for available updates."""

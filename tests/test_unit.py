@@ -1141,6 +1141,38 @@ class TestBethesdaLoadOrder:
         assert lo2.plugins[0].filename == "Skyrim.esm" and lo2.plugins[0].enabled is True
         assert lo2.plugins[1].filename == "Off.esp" and lo2.plugins[1].enabled is False
 
+    def test_export_import_json_roundtrip(self, tmp_path):
+        from wabbajack.loadorder import ModEntry, PluginEntry
+        lo = self._make_lo(tmp_path)
+        lo.mods = [ModEntry("Mod A", enabled=True, uid='uid-a'), ModEntry("Mod B", enabled=False)]
+        lo.plugins = [PluginEntry("Skyrim.esm", enabled=True, is_master=True),
+                      PluginEntry("Light.esl", enabled=True, is_light=True)]
+        export_path = tmp_path / 'export.json'
+        lo.export_json(export_path)
+        assert export_path.exists()
+
+        lo2 = self._make_lo(tmp_path)
+        lo2.import_json(export_path)
+        assert len(lo2.mods) == 2
+        assert lo2.mods[0].name == "Mod A" and lo2.mods[0].uid == 'uid-a'
+        assert lo2.mods[1].enabled is False
+        assert len(lo2.plugins) == 2
+        assert lo2.plugins[0].is_master is True
+        assert lo2.plugins[1].is_light is True
+
+    def test_export_json_content(self, tmp_path):
+        import json as _json
+        from wabbajack.loadorder import ModEntry
+        lo = self._make_lo(tmp_path)
+        lo.mods = [ModEntry("TestMod", enabled=True)]
+        path = tmp_path / 'out.json'
+        lo.export_json(path)
+        data = _json.loads(path.read_text())
+        assert data['game'] == 'SkyrimSpecialEdition'
+        assert data['version'] == '1.0'
+        assert len(data['mods']) == 1
+        assert data['mods'][0]['name'] == 'TestMod'
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # web/auth.py: Nexus Auth State
