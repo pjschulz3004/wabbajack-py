@@ -9,6 +9,7 @@ from .platform import detect_game_dir, find_steam_libraries, GAME_DIRS
 from .hash import compute_xxhash64_b64, HAS_XXHASH, verify_archive
 from .installer import ModlistInstaller
 from .profiles import ProfileManager
+from .downloaders import classify_archive
 
 log = logging.getLogger('wabbajack')
 
@@ -276,7 +277,6 @@ def list_downloads(wabbajack, downloads):
     ml = WabbajackModlist(wabbajack)
     log.info(f"{ml.name} v{ml.version} -- {len(ml.archives)} archives\n")
 
-    from .downloaders import classify_archive
     downloads_dir = Path(downloads) if downloads else None
     by_type = {}
     present = 0
@@ -304,3 +304,72 @@ def list_downloads(wabbajack, downloads):
     if downloads_dir:
         log.info(f"  Present: {present}/{len(ml.archives)} ({present_size/1073741824:.1f} GB)")
         log.info(f"  Missing: {len(ml.archives) - present} ({(total_size - present_size)/1073741824:.1f} GB)")
+
+
+@main.command('extract')
+@click.argument('wabbajack', type=click.Path(exists=True))
+@click.option('-o', '--output', required=True, type=click.Path(), help='Output directory for inline data')
+def extract(wabbajack, output):
+    """Extract all inline/patch data from a .wabbajack file."""
+    with WabbajackModlist(wabbajack) as ml:
+        log.info(f"{ml.name} v{ml.version}")
+        count = ml.extract_all_inline(output)
+        log.info(f"Extracted {count} files to {output}")
+
+
+@main.command('status')
+@click.argument('wabbajack', type=click.Path(exists=True))
+@click.option('-d', '--downloads', type=click.Path(exists=True), help='Downloads directory')
+@click.option('-o', '--output', type=click.Path(exists=True), help='Output/install directory')
+def status(wabbajack, downloads, output):
+    """Show installation status and readiness."""
+    with WabbajackModlist(wabbajack) as ml:
+        s = ml.summary()
+        log.info(f"{s['name']} v{s['version']} by {s['author']}")
+        log.info(f"Game: {s['game']} | Archives: {s['archives']} | Directives: {s['directives']}")
+
+        if downloads:
+            dl_dir = Path(downloads)
+            present = 0
+            present_size = 0
+            total_size = 0
+            for a in ml.archives:
+                size = a.get('Size', 0)
+                total_size += size
+                path = dl_dir / a['Name']
+                if path.exists() and path.stat().st_size > 0:
+                    present += 1
+                    present_size += size
+            pct = present / max(1, len(ml.archives)) * 100
+            log.info(f"\nDownloads: {present}/{len(ml.archives)} ({pct:.0f}%)")
+            log.info(f"  Downloaded: {present_size/1073741824:.1f} GB / {total_size/1073741824:.1f} GB")
+            remaining = total_size - present_size
+            if remaining > 0:
+                log.info(f"  Remaining:  {remaining/1073741824:.1f} GB")
+
+            by_type = {}
+            missing = []
+            for a in ml.archives:
+                path = dl_dir / a['Name']
+                if not (path.exists() and path.stat().st_size > 0):
+                    t = classify_archive(a)
+                    by_type.setdefault(t, []).append(a)
+                    missing.append(a)
+            if missing:
+                log.info(f"\n  Missing by type:")
+                for t in sorted(by_type.keys()):
+                    items = by_type[t]
+                    size = sum(a.get('Size', 0) for a in items) / 1073741824
+                    log.info(f"    {t:>12}: {len(items):>5} ({size:.1f} GB)")
+
+        if output:
+            out_dir = Path(output)
+            file_count = sum(1 for _ in out_dir.rglob('*') if _.is_file())
+            dir_size = sum(f.stat().st_size for f in out_dir.rglob('*') if f.is_file())
+            portable = (out_dir / 'portable.txt').exists()
+            mo2_ini = (out_dir / 'ModOrganizer.ini').exists()
+            log.info(f"\nInstallation: {out_dir}")
+            log.info(f"  Files: {file_count}")
+            log.info(f"  Size:  {dir_size/1073741824:.1f} GB")
+            log.info(f"  MO2 portable: {'yes' if portable else 'no'}")
+            log.info(f"  MO2 config:   {'yes' if mo2_ini else 'no'}")

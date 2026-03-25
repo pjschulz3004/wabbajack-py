@@ -1,8 +1,6 @@
 """Download handlers for all Wabbajack archive source types."""
 import logging, time
 from pathlib import Path
-from urllib.request import Request, urlopen
-from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse, urlunparse
 
 log = logging.getLogger(__name__)
@@ -11,6 +9,27 @@ USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/1
 CHUNK_SIZE = 256 * 1024
 DOWNLOAD_TIMEOUT = 600
 MAX_RETRIES = 3
+
+# Module-level session for HTTP connection reuse (keep-alive, connection pooling)
+_session = None
+
+
+def _get_session():
+    """Get or create a shared requests.Session with connection pooling."""
+    global _session
+    if _session is None:
+        try:
+            import requests
+            from requests.adapters import HTTPAdapter
+            _session = requests.Session()
+            _session.headers['User-Agent'] = USER_AGENT
+            # Increase connection pool size for parallel downloads
+            adapter = HTTPAdapter(pool_connections=20, pool_maxsize=20)
+            _session.mount('http://', adapter)
+            _session.mount('https://', adapter)
+        except ImportError:
+            _session = None
+    return _session
 
 
 def validate_url_scheme(url):
@@ -22,16 +41,68 @@ def validate_url_scheme(url):
 
 
 def download_with_progress(url, dest_path, timeout=DOWNLOAD_TIMEOUT, quiet=False):
-    """Download a URL to a file with progress bar. Returns True on success."""
+    """Download a URL to a file with progress bar and connection reuse."""
     validate_url_scheme(url)
-    headers = {'User-Agent': USER_AGENT}
 
     if '%' not in url:
         parsed = urlparse(url)
         encoded_path = quote(parsed.path, safe='/:@!$&\'()*+,;=-._~[]')
         url = urlunparse(parsed._replace(path=encoded_path))
 
-    req = Request(url, headers=headers)
+    session = _get_session()
+
+    # Try requests first (connection reuse), fall back to urllib
+    if session is not None:
+        return _download_requests(session, url, dest_path, timeout, quiet)
+    return _download_urllib(url, dest_path, timeout, quiet)
+
+
+def _download_requests(session, url, dest_path, timeout, quiet):
+    """Download using requests.Session (HTTP keep-alive, connection pooling)."""
+    try:
+        resp = session.get(url, stream=True, timeout=timeout, allow_redirects=True)
+        resp.raise_for_status()
+        total = int(resp.headers.get('Content-Length', 0))
+        downloaded = 0
+        start = time.time()
+        with open(dest_path, 'wb') as f:
+            for chunk in resp.iter_content(chunk_size=CHUNK_SIZE):
+                if chunk:
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if not quiet:
+                        elapsed = time.time() - start
+                        speed = downloaded / elapsed if elapsed > 0 else 0
+                        if total > 0:
+                            pct = downloaded / total * 100
+                            eta = (total - downloaded) / speed if speed > 0 else 0
+                            print(f"\r    {pct:.0f}% {downloaded/1048576:.1f}/{total/1048576:.1f} MB "
+                                  f"({speed/1048576:.1f} MB/s, ETA {eta:.0f}s)  ", end="", flush=True)
+                        else:
+                            print(f"\r    {downloaded/1048576:.1f} MB ({speed/1048576:.1f} MB/s)  ",
+                                  end="", flush=True)
+        if not quiet:
+            elapsed = time.time() - start
+            speed = downloaded / elapsed if elapsed > 0 else 0
+            print(f"\r    Done: {downloaded/1048576:.1f} MB ({speed/1048576:.1f} MB/s)       ")
+        return True
+    except Exception as e:
+        if not quiet:
+            status = getattr(getattr(e, 'response', None), 'status_code', '')
+            if status:
+                log.error(f"    Download HTTP {status}: {url}")
+            else:
+                log.error(f"    Download {type(e).__name__}: {e} -- {url}")
+        Path(dest_path).unlink(missing_ok=True)
+        return False
+
+
+def _download_urllib(url, dest_path, timeout, quiet):
+    """Fallback download using urllib (no connection reuse)."""
+    from urllib.request import Request, urlopen
+    from urllib.error import HTTPError, URLError
+
+    req = Request(url, headers={'User-Agent': USER_AGENT})
     try:
         resp = urlopen(req, timeout=timeout)
         total = int(resp.headers.get('Content-Length', 0))
