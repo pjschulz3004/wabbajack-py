@@ -88,6 +88,7 @@ class InstallState:
             'failed_files': 0,
             'phase': 'init',
         }
+        self._hash_set_cache = set()
         self._save()
 
     def summary(self):
