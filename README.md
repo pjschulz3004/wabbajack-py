@@ -18,7 +18,13 @@ Cross-platform Wabbajack modlist installer with web GUI. Runs natively on Linux,
 ## Quick Start
 
 ```bash
-# Clone and install
+# One-line install
+curl -fsSL https://raw.githubusercontent.com/pjschulz3004/wabbajack-py/master/install.sh | bash
+```
+
+Or manually:
+
+```bash
 git clone https://github.com/pjschulz3004/wabbajack-py.git
 cd wabbajack-py
 pip install -e ".[all]"
