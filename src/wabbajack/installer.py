@@ -14,6 +14,7 @@ from .downloaders.nexus import NexusClient, download_nexus_files
 from .downloaders.mediafire import download_mediafire_files
 from .downloaders.mega import download_mega_files
 from .downloaders.gdrive import download_gdrive_files
+from .downloaders.moddb import download_moddb_files
 
 log = logging.getLogger(__name__)
 
@@ -285,9 +286,17 @@ class ModlistInstaller:
     def _skip_manual(self, archives):
         if not archives:
             return
-        log.warning(f"\n--- Skipping {len(archives)} manual downloads ---")
-        for a in archives:
-            log.warning(f"  SKIP: {a['Name']} ({a['State'].get('Url', '?')})")
+        log.warning(f"\n--- {len(archives)} manual downloads required ---")
+        manual_file = self.downloads / 'manual-downloads.txt'
+        with open(manual_file, 'w') as f:
+            for a in archives:
+                url = a['State'].get('Url', a['State'].get('Prompt', ''))
+                log.warning(f"  MANUAL: {a['Name']}")
+                if url:
+                    log.warning(f"          {url}")
+                f.write(f"{a['Name']}\t{url}\n")
+        log.warning(f"  URLs saved to: {manual_file}")
+        log.warning(f"  Download these files manually and place in: {self.downloads}")
 
     def download_all(self, types=None, dry_run=False):
         missing = [a for a in self.ml.archives if not self._is_archive_present(a)]
@@ -305,7 +314,7 @@ class ModlistInstaller:
         log.info(f"Download Summary")
         log.info(f"  Already present: {present}/{len(self.ml.archives)}")
         log.info(f"  Need download:   {len(missing)} (~{total_size/1073741824:.1f} GB)")
-        for g in ['game', 'http', 'mediafire', 'mega', 'gdrive', 'nexus', 'manual']:
+        for g in ['game', 'http', 'mediafire', 'mega', 'gdrive', 'moddb', 'nexus', 'manual']:
             if g in groups:
                 items = groups[g]
                 size = sum(a.get('Size', 0) for a in items) / 1073741824
@@ -322,11 +331,12 @@ class ModlistInstaller:
             'mediafire': lambda a: download_mediafire_files(a, self.downloads, self._register_download, self.failed_downloads),
             'mega': lambda a: download_mega_files(a, self.downloads, self._is_archive_present, self._register_download, self.failed_downloads),
             'gdrive': lambda a: download_gdrive_files(a, self.downloads, self._register_download, self.failed_downloads),
+            'moddb': lambda a: download_moddb_files(a, self.downloads, self._register_download, self.failed_downloads),
             'nexus': lambda a: download_nexus_files(a, self.downloads, self.nexus, self._register_download, self.failed_downloads),
             'manual': self._skip_manual,
         }
 
-        for t in ['game', 'http', 'mediafire', 'mega', 'gdrive', 'nexus', 'manual']:
+        for t in ['game', 'http', 'mediafire', 'mega', 'gdrive', 'moddb', 'nexus', 'manual']:
             if types and t not in types:
                 continue
             if t in groups and groups[t]:

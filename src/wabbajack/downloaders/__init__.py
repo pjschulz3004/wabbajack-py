@@ -91,6 +91,7 @@ TYPE_MAP = {
     'MegaDownloader': 'mega',
     'GoogleDrive': 'gdrive',
     'NexusDownloader': 'nexus',
+    'ModDB': 'moddb',
     'ManualDownloader': 'manual',
 }
 

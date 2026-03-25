@@ -11,58 +11,52 @@ IS_LINUX = sys.platform.startswith('linux')
 # Game type -> (Windows paths, macOS paths, Linux paths)
 # Windows paths are relative to each Steam library
 GAME_DIRS = {
-    'SkyrimSpecialEdition': {
-        'steam_subdir': 'Skyrim Special Edition',
-        'display': 'Skyrim Special Edition',
-    },
-    'Skyrim': {
-        'steam_subdir': 'Skyrim',
-        'display': 'Skyrim (LE)',
-    },
-    'Fallout4': {
-        'steam_subdir': 'Fallout 4',
-        'display': 'Fallout 4',
-    },
-    'Fallout4VR': {
-        'steam_subdir': 'Fallout 4 VR',
-        'display': 'Fallout 4 VR',
-    },
-    'SkyrimVR': {
-        'steam_subdir': 'SkyrimVR',
-        'display': 'Skyrim VR',
-    },
-    'EnderalSpecialEdition': {
-        'steam_subdir': 'Enderal Special Edition',
-        'display': 'Enderal SE',
-    },
-    'Oblivion': {
-        'steam_subdir': 'Oblivion',
-        'display': 'Oblivion',
-    },
-    'FalloutNewVegas': {
-        'steam_subdir': 'Fallout New Vegas',
-        'display': 'Fallout: New Vegas',
-    },
-    'Morrowind': {
-        'steam_subdir': 'Morrowind',
-        'display': 'Morrowind',
-    },
-    'Cyberpunk2077': {
-        'steam_subdir': 'Cyberpunk 2077',
-        'display': 'Cyberpunk 2077',
-    },
-    'BaldursGate3': {
-        'steam_subdir': 'Baldurs Gate 3',
-        'display': "Baldur's Gate 3",
-    },
-    'StardewValley': {
-        'steam_subdir': 'Stardew Valley',
-        'display': 'Stardew Valley',
-    },
-    'Starfield': {
-        'steam_subdir': 'Starfield',
-        'display': 'Starfield',
-    },
+    # Bethesda
+    'Morrowind':              {'steam_subdir': 'Morrowind',                   'display': 'Morrowind'},
+    'Oblivion':               {'steam_subdir': 'Oblivion',                    'display': 'Oblivion'},
+    'OblivionRemastered':     {'steam_subdir': 'Oblivion Remastered',         'display': 'Oblivion Remastered'},
+    'Skyrim':                 {'steam_subdir': 'Skyrim',                      'display': 'Skyrim (LE)'},
+    'SkyrimSpecialEdition':   {'steam_subdir': 'Skyrim Special Edition',      'display': 'Skyrim Special Edition'},
+    'SkyrimVR':               {'steam_subdir': 'SkyrimVR',                    'display': 'Skyrim VR'},
+    'Enderal':                {'steam_subdir': 'Enderal',                     'display': 'Enderal'},
+    'EnderalSpecialEdition':  {'steam_subdir': 'Enderal Special Edition',     'display': 'Enderal SE'},
+    'Fallout3':               {'steam_subdir': 'Fallout 3',                   'display': 'Fallout 3'},
+    'FalloutNewVegas':        {'steam_subdir': 'Fallout New Vegas',           'display': 'Fallout: New Vegas'},
+    'Fallout4':               {'steam_subdir': 'Fallout 4',                   'display': 'Fallout 4'},
+    'Fallout4VR':             {'steam_subdir': 'Fallout 4 VR',               'display': 'Fallout 4 VR'},
+    'Fallout4London':         {'steam_subdir': 'Fallout London',              'display': 'Fallout 4: London'},
+    'Fallout76':              {'steam_subdir': 'Fallout 76',                  'display': 'Fallout 76'},
+    'Starfield':              {'steam_subdir': 'Starfield',                   'display': 'Starfield'},
+    # RPG/Action
+    'BaldursGate3':           {'steam_subdir': 'Baldurs Gate 3',              'display': "Baldur's Gate 3"},
+    'Cyberpunk2077':          {'steam_subdir': 'Cyberpunk 2077',              'display': 'Cyberpunk 2077'},
+    'Witcher3':               {'steam_subdir': 'The Witcher 3 Wild Hunt',     'display': 'The Witcher 3'},
+    'DragonsDogma':           {'steam_subdir': "Dragon's Dogma Dark Arisen",  'display': "Dragon's Dogma"},
+    'DragonsDogma2':          {'steam_subdir': "Dragon's Dogma 2",            'display': "Dragon's Dogma 2"},
+    'KingdomComeDeliverance': {'steam_subdir': 'KingdomComeDeliverance',      'display': 'Kingdom Come: Deliverance'},
+    'KingdomComeDeliverance2': {'steam_subdir': 'KingdomComeDeliverance2',    'display': 'Kingdom Come: Deliverance 2'},
+    'Bannerlord':             {'steam_subdir': 'Mount & Blade II Bannerlord', 'display': 'Bannerlord'},
+    'KOTOR2':                 {'steam_subdir': 'Knights of the Old Republic II', 'display': 'KOTOR 2'},
+    'VTMB':                   {'steam_subdir': 'Vampire The Masquerade - Bloodlines', 'display': 'VTM: Bloodlines'},
+    # Strategy/Sim
+    'StardewValley':          {'steam_subdir': 'Stardew Valley',              'display': 'Stardew Valley'},
+    'Terraria':               {'steam_subdir': 'Terraria',                    'display': 'Terraria'},
+    'KerbalSpaceProgram':     {'steam_subdir': 'Kerbal Space Program',        'display': 'KSP'},
+    'Valheim':                {'steam_subdir': 'Valheim',                     'display': 'Valheim'},
+    'NoMansSky':              {'steam_subdir': "No Man's Sky",                'display': "No Man's Sky"},
+    'Sims4':                  {'steam_subdir': 'The Sims 4',                  'display': 'The Sims 4'},
+    '7DaysToDie':             {'steam_subdir': '7 Days To Die',               'display': '7 Days to Die'},
+    # BioWare
+    'DragonAgeOrigins':       {'steam_subdir': 'Dragon Age Origins',          'display': 'Dragon Age: Origins'},
+    'DragonAge2':             {'steam_subdir': 'Dragon Age II',               'display': 'Dragon Age II'},
+    'DragonAgeInquisition':   {'steam_subdir': 'Dragon Age Inquisition',      'display': 'Dragon Age: Inquisition'},
+    # Stealth/Action
+    'DarkestDungeon':         {'steam_subdir': 'DarkestDungeon',              'display': 'Darkest Dungeon'},
+    'Dishonored':             {'steam_subdir': 'Dishonored',                  'display': 'Dishonored'},
+    'MechWarrior5Mercenaries': {'steam_subdir': 'MechWarrior 5 Mercenaries',  'display': 'MechWarrior 5'},
+    'FF7Remake':              {'steam_subdir': 'FINAL FANTASY VII REMAKE',    'display': 'FF7 Remake'},
+    'Warhammer40kDarktide':   {'steam_subdir': 'Warhammer 40000 Darktide',    'display': 'Darktide'},
+    'KarrynsPrison':          {'steam_subdir': "Karryn's Prison",             'display': "Karryn's Prison"},
 }
 
 

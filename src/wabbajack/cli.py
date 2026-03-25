@@ -5,7 +5,8 @@ import click
 
 from . import __version__
 from .modlist import WabbajackModlist
-from .platform import detect_game_dir
+from .platform import detect_game_dir, find_steam_libraries, GAME_DIRS
+from .hash import compute_xxhash64_b64, HAS_XXHASH, verify_archive
 from .installer import ModlistInstaller
 from .profiles import ProfileManager
 
@@ -69,7 +70,7 @@ def info(wabbajack):
 @click.option('--dry-run', is_flag=True, help='Show what would be downloaded')
 @click.option('--verify', is_flag=True, help='Verify hashes after download (warn only)')
 @click.option('--type', 'types', multiple=True,
-              type=click.Choice(['game', 'http', 'mediafire', 'mega', 'gdrive', 'nexus']),
+              type=click.Choice(['game', 'http', 'mediafire', 'mega', 'gdrive', 'moddb', 'nexus']),
               help='Only download specific types')
 def download(wabbajack, downloads, nexus_key, game_dir, dry_run, verify, types):
     """Download missing archives for a modlist."""
@@ -176,3 +177,130 @@ def shared(base, new_wabbajack):
         log.info(f"    Already downloaded:  {result['reusable']} ({result['reusable_size']/1073741824:.1f} GB)")
         log.info(f"    Need to download:   {result['new_only']} ({result['new_size']/1073741824:.1f} GB)")
         log.info(f"    Savings:            {result['savings_pct']:.0f}%")
+
+
+@main.command('list-games')
+def list_games():
+    """List detected game installations."""
+    libraries = find_steam_libraries()
+    log.info(f"Steam libraries: {len(libraries)}")
+    for lib in libraries:
+        log.info(f"  {lib}")
+
+    log.info(f"\nSupported games ({len(GAME_DIRS)}):")
+    found = 0
+    for game_type, info in sorted(GAME_DIRS.items()):
+        for lib in libraries:
+            game_path = lib / info['steam_subdir']
+            if game_path.exists():
+                log.info(f"  [FOUND] {info['display']:30s}  {game_path}")
+                found += 1
+                break
+        else:
+            log.info(f"  [     ] {info['display']}")
+    log.info(f"\n{found}/{len(GAME_DIRS)} games detected")
+
+
+@main.command('hash-file')
+@click.argument('file_path', type=click.Path(exists=True))
+def hash_file(file_path):
+    """Compute xxHash64 of a file (Wabbajack format)."""
+    if not HAS_XXHASH:
+        log.error("xxhash not installed (pip install xxhash)")
+        raise SystemExit(1)
+    import os
+    size = os.path.getsize(file_path)
+    log.info(f"File: {file_path} ({size/1048576:.1f} MB)")
+    result = compute_xxhash64_b64(file_path)
+    log.info(f"xxHash64 (base64): {result}")
+
+
+@main.command('verify')
+@click.argument('wabbajack', type=click.Path(exists=True))
+@click.option('-d', '--downloads', required=True, type=click.Path(exists=True), help='Downloads directory')
+def verify(wabbajack, downloads):
+    """Verify downloaded archive hashes against modlist."""
+    if not HAS_XXHASH:
+        log.error("xxhash not installed (pip install xxhash)")
+        raise SystemExit(1)
+
+    ml = WabbajackModlist(wabbajack)
+    log.info(f"{ml.name} v{ml.version} -- verifying {len(ml.archives)} archives")
+
+    downloads_dir = Path(downloads)
+    ok = 0
+    mismatch = 0
+    missing = 0
+    skipped = 0
+
+    for i, a in enumerate(ml.archives):
+        name = a['Name']
+        expected = a.get('Hash', '')
+        path = downloads_dir / name
+        if not path.exists():
+            path_lower = downloads_dir / name.lower()
+            if path_lower.exists():
+                path = path_lower
+            else:
+                missing += 1
+                continue
+
+        if not expected:
+            skipped += 1
+            continue
+
+        result = verify_archive(path, expected, name)
+        if result.ok:
+            ok += 1
+        else:
+            mismatch += 1
+            log.warning(f"  {result.message}")
+
+        if (i + 1) % 500 == 0:
+            log.info(f"  Progress: {i+1}/{len(ml.archives)} checked...")
+
+    log.info(f"\nVerification complete:")
+    log.info(f"  OK:         {ok}")
+    log.info(f"  Mismatch:   {mismatch}")
+    log.info(f"  Missing:    {missing}")
+    log.info(f"  Skipped:    {skipped}")
+    if mismatch:
+        log.warning(f"\n{mismatch} hash mismatches found. Re-download affected files.")
+
+
+@main.command('list-downloads')
+@click.argument('wabbajack', type=click.Path(exists=True))
+@click.option('-d', '--downloads', type=click.Path(exists=True), help='Downloads directory to check against')
+def list_downloads(wabbajack, downloads):
+    """List all archives in a modlist with download status."""
+    ml = WabbajackModlist(wabbajack)
+    log.info(f"{ml.name} v{ml.version} -- {len(ml.archives)} archives\n")
+
+    from .downloaders import classify_archive
+    downloads_dir = Path(downloads) if downloads else None
+    by_type = {}
+    present = 0
+    total_size = 0
+    present_size = 0
+
+    for a in ml.archives:
+        t = classify_archive(a)
+        by_type.setdefault(t, []).append(a)
+        size = a.get('Size', 0)
+        total_size += size
+
+        if downloads_dir:
+            path = downloads_dir / a['Name']
+            if path.exists() and path.stat().st_size > 0:
+                present += 1
+                present_size += size
+
+    for t in sorted(by_type.keys()):
+        items = by_type[t]
+        size = sum(a.get('Size', 0) for a in items) / 1073741824
+        log.info(f"  {t:>12}: {len(items):>5} files ({size:.2f} GB)")
+
+    log.info(f"\n  Total: {len(ml.archives)} archives ({total_size/1073741824:.1f} GB)")
+    if downloads_dir:
+        log.info(f"  Present: {present}/{len(ml.archives)} ({present_size/1073741824:.1f} GB)")
+        log.info(f"  Missing: {len(ml.archives) - present} ({(total_size - present_size)/1073741824:.1f} GB)")
