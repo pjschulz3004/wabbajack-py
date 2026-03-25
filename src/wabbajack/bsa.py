@@ -191,14 +191,23 @@ def stage_bsa_files(directive, _archive_cache, output_dir, cache_dir):
         return str(temp_bsa_dir), len(file_states)
 
     # Fallback: try to find files by their paths in the output directory
+    output_resolved = str(Path(output_dir).resolve())
+    staging_resolved = str(staging.resolve())
     for fs in file_states:
         file_path = fs.get('Path', '')
-        if not file_path:
+        if not file_path or '..' in file_path.split('/') or '..' in file_path.split('\\'):
             continue
-        # Look in output directory
+        # Path traversal check
         src = Path(output_dir) / file_path.replace('\\', '/')
+        dest = staging / file_path.replace('\\', '/')
+        try:
+            if not str(src.resolve()).startswith(output_resolved):
+                continue
+            if not str(dest.resolve()).startswith(staging_resolved):
+                continue
+        except (OSError, ValueError):
+            continue
         if src.exists():
-            dest = staging / file_path.replace('\\', '/')
             dest.parent.mkdir(parents=True, exist_ok=True)
             try:
                 shutil.copyfile(src, dest)

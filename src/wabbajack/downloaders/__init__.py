@@ -10,26 +10,27 @@ CHUNK_SIZE = 256 * 1024
 DOWNLOAD_TIMEOUT = 600
 MAX_RETRIES = 3
 
-# Module-level session for HTTP connection reuse (keep-alive, connection pooling)
-_session = None
+# Per-thread sessions for HTTP connection reuse (thread-safe)
+import threading as _thr
+_thread_local = _thr.local()
 
 
 def _get_session():
-    """Get or create a shared requests.Session with connection pooling."""
-    global _session
-    if _session is None:
+    """Get or create a per-thread requests.Session with connection pooling."""
+    session = getattr(_thread_local, 'session', None)
+    if session is None:
         try:
             import requests
             from requests.adapters import HTTPAdapter
-            _session = requests.Session()
-            _session.headers['User-Agent'] = USER_AGENT
-            # Increase connection pool size for parallel downloads
-            adapter = HTTPAdapter(pool_connections=20, pool_maxsize=20)
-            _session.mount('http://', adapter)
-            _session.mount('https://', adapter)
+            session = requests.Session()
+            session.headers['User-Agent'] = USER_AGENT
+            adapter = HTTPAdapter(pool_connections=10, pool_maxsize=10)
+            session.mount('http://', adapter)
+            session.mount('https://', adapter)
+            _thread_local.session = session
         except ImportError:
-            _session = None
-    return _session
+            return None
+    return session
 
 
 def validate_url_scheme(url):

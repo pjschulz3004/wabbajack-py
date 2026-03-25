@@ -69,8 +69,8 @@ def serve(port, no_browser, host):
 def info(wabbajack):
     """Show modlist details."""
     from .progress import print_modlist_info, HAS_RICH
-    ml = WabbajackModlist(wabbajack)
-    s = ml.summary()
+    with WabbajackModlist(wabbajack) as ml:
+        s = ml.summary()
     if HAS_RICH:
         print_modlist_info(s)
     else:
@@ -101,7 +101,7 @@ def info(wabbajack):
               help='Only download specific types')
 def download(wabbajack, downloads, nexus_key, game_dir, dry_run, verify, types):
     """Download missing archives for a modlist."""
-    ml = WabbajackModlist(wabbajack)
+    ml = WabbajackModlist(wabbajack)  # Stays open for installer use
     log.info(f"{ml.name} v{ml.version} by {ml.author}")
 
     gdir = Path(game_dir) if game_dir else detect_game_dir(ml.game)

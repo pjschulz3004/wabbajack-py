@@ -25,15 +25,20 @@ async def fetch_gallery():
             resp = await client.get(REPOS_URL)
             repos = resp.json()
 
-            all_lists = []
-            for repo in repos:
+            # Fetch all repos in parallel
+            import asyncio
+            async def fetch_repo(url):
                 try:
-                    r = await client.get(repo["url"], timeout=15)
-                    lists = r.json()
-                    if isinstance(lists, list):
-                        all_lists.extend(lists)
+                    r = await client.get(url, timeout=15)
+                    data = r.json()
+                    return data if isinstance(data, list) else []
                 except Exception:
-                    continue
+                    return []
+
+            results = await asyncio.gather(
+                *[fetch_repo(repo["url"]) for repo in repos]
+            )
+            all_lists = [item for sublist in results for item in sublist]
 
             _cache["data"] = all_lists
             _cache["fetched_at"] = now

@@ -6,6 +6,7 @@ router = APIRouter()
 
 _clients: set[WebSocket] = set()
 _message_queue: asyncio.Queue | None = None
+_event_loop: asyncio.AbstractEventLoop | None = None
 
 
 class WebSocketLogHandler(logging.Handler):
@@ -45,39 +46,40 @@ async def broadcast(msg: dict):
     _clients -= dead
 
 
-def push_progress(phase, current, total, speed="", eta=""):
-    """Push progress update from sync code (installer threads)."""
-    if _message_queue is None:
+def _safe_put(msg):
+    """Thread-safe enqueue: uses call_soon_threadsafe to avoid asyncio.Queue corruption."""
+    if _message_queue is None or _event_loop is None:
         return
     try:
-        _message_queue.put_nowait({
-            "type": "progress",
-            "phase": phase,
-            "current": current,
-            "total": total,
-            "speed": speed,
-            "eta": eta,
-        })
-    except asyncio.QueueFull:
-        pass
+        _event_loop.call_soon_threadsafe(_message_queue.put_nowait, msg)
+    except (RuntimeError, asyncio.QueueFull):
+        pass  # Loop closed or queue full
+
+
+def push_progress(phase, current, total, speed="", eta=""):
+    """Push progress update from sync code (installer threads). Thread-safe."""
+    _safe_put({
+        "type": "progress",
+        "phase": phase,
+        "current": current,
+        "total": total,
+        "speed": speed,
+        "eta": eta,
+    })
 
 
 def push_event(event_type, **kwargs):
-    """Push arbitrary event from sync code."""
-    if _message_queue is None:
-        return
-    try:
-        _message_queue.put_nowait({"type": event_type, **kwargs})
-    except asyncio.QueueFull:
-        pass
+    """Push arbitrary event from sync code. Thread-safe."""
+    _safe_put({"type": event_type, **kwargs})
 
 
 @router.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
-    global _message_queue
+    global _message_queue, _event_loop
     await ws.accept()
     _clients.add(ws)
 
+    _event_loop = asyncio.get_running_loop()
     if _message_queue is None:
         _message_queue = asyncio.Queue(maxsize=10000)
 
