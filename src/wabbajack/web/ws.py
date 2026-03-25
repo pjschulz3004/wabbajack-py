@@ -93,16 +93,29 @@ async def websocket_endpoint(ws: WebSocket):
 
     drain_task = asyncio.create_task(drain())
 
+    VALID_COMMANDS = {"cancel", "skip_file", "manual_complete"}
+    MAX_MSG_SIZE = 4096
+
     try:
         while True:
             data = await ws.receive_text()
-            msg = json.loads(data)
-            if msg.get("type") == "cancel":
+            if len(data) > MAX_MSG_SIZE:
+                continue  # Drop oversized messages
+            try:
+                msg = json.loads(data)
+            except (json.JSONDecodeError, ValueError):
+                continue  # Drop malformed JSON
+            msg_type = msg.get("type")
+            if msg_type not in VALID_COMMANDS:
+                continue  # Drop unknown commands
+            if msg_type == "cancel":
                 push_event("cancel_requested")
-            elif msg.get("type") == "skip_file":
-                push_event("skip_file", name=msg.get("name", ""))
-            elif msg.get("type") == "manual_complete":
-                push_event("manual_complete", name=msg.get("name", ""))
+            elif msg_type == "skip_file":
+                name = str(msg.get("name", ""))[:256]  # Truncate
+                push_event("skip_file", name=name)
+            elif msg_type == "manual_complete":
+                name = str(msg.get("name", ""))[:256]
+                push_event("manual_complete", name=name)
     except WebSocketDisconnect:
         pass
     finally:

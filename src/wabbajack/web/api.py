@@ -3,11 +3,12 @@ import logging, threading, asyncio
 from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 log = logging.getLogger(__name__)
 router = APIRouter()
 
+_install_lock = threading.Lock()
 _install_thread: Optional[threading.Thread] = None
 _sso_task: Optional[asyncio.Task] = None
 
@@ -21,6 +22,23 @@ class InstallRequest(BaseModel):
     workers: int = 12
     verify_hashes: bool = False
     skip_download: bool = False
+
+    @field_validator('wabbajack_path', 'output_dir', 'downloads_dir', 'game_dir')
+    @classmethod
+    def validate_paths(cls, v: str) -> str:
+        """Reject path traversal attempts and null bytes."""
+        if '\x00' in v:
+            raise ValueError("Null bytes not allowed in paths")
+        if '..' in Path(v).parts:
+            raise ValueError("Path traversal not allowed")
+        return v
+
+    @field_validator('workers')
+    @classmethod
+    def validate_workers(cls, v: int) -> int:
+        if v < 1 or v > 64:
+            raise ValueError("Workers must be between 1 and 64")
+        return v
 
 
 class SettingsUpdate(BaseModel):
@@ -129,8 +147,9 @@ async def open_modlist(wabbajack_path: str):
 @router.post("/install/start")
 async def start_install(req: InstallRequest):
     global _install_thread
-    if _install_thread and _install_thread.is_alive():
-        raise HTTPException(409, "Install already in progress")
+    with _install_lock:
+        if _install_thread and _install_thread.is_alive():
+            raise HTTPException(409, "Install already in progress")
 
     def run_install():
         from ..modlist import WabbajackModlist

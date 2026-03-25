@@ -110,7 +110,13 @@ def create_bsa_bsarch(staging_dir, output_path, state):
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    # Build command
+    # Validate game_flag (whitelist only)
+    valid_flags = {'-tes3', '-tes4', '-fo3', '-fnv', '-tes5', '-sse', '-fo4', '-sf1'}
+    if game_flag not in valid_flags:
+        log.warning(f"    Invalid game flag: {game_flag}")
+        return False
+
+    # Build command -- all args are Path objects or whitelisted flags, safe from injection
     cmd = []
     bsarch_str = str(bsarch)
     if bsarch_str.endswith('.exe'):
@@ -159,7 +165,7 @@ def create_bsa(staging_dir, output_path, state):
     return False
 
 
-def stage_bsa_files(directive, archive_cache, output_dir, cache_dir):
+def stage_bsa_files(directive, _archive_cache, output_dir, cache_dir):
     """Stage files for BSA creation from a CreateBSA directive.
 
     Returns (staging_dir, file_count) or (None, 0) if staging fails.

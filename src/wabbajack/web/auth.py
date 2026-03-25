@@ -127,11 +127,15 @@ async def initiate_sso():
                 try:
                     response = await asyncio.wait_for(ws.recv(), timeout=300)
                     data = json.loads(response)
-                    if data.get("success") and data.get("data", {}).get("api_key"):
-                        token = data["data"]["api_key"]
-                        save_token(token)
-                        log.info("Nexus SSO: authorization received")
-                        return token
+                    if data.get("success") and isinstance(data.get("data"), dict):
+                        token = data["data"].get("api_key", "")
+                        # Validate token format (Nexus API keys are alphanumeric)
+                        if token and len(token) > 10 and token.isascii():
+                            save_token(token)
+                            log.info("Nexus SSO: authorization received")
+                            return token
+                        else:
+                            log.warning("Nexus SSO: received invalid token format")
                 except asyncio.TimeoutError:
                     log.warning("Nexus SSO: timed out waiting for authorization")
         except Exception as e:

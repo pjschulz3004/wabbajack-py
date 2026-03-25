@@ -15,7 +15,11 @@ async def fetch_gallery():
     if _cache["data"] and now - _cache["fetched_at"] < CACHE_TTL:
         return _cache["data"]
 
-    import httpx
+    try:
+        import httpx
+    except ImportError:
+        log.warning("httpx not installed -- gallery unavailable (pip install httpx)")
+        return []
     async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
         try:
             resp = await client.get(REPOS_URL)

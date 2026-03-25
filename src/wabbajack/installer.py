@@ -1,5 +1,5 @@
 """Modlist installer -- orchestrates downloads, extraction, and file placement."""
-import re, time, shutil, logging
+import re, time, shutil, logging, threading
 from pathlib import Path
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -65,6 +65,7 @@ class ModlistInstaller:
         self.archive_cache = ArchiveCache(self.cache_dir)
         self.inline_dir = self.cache_dir / '_inline'
 
+        self._stats_lock = threading.Lock()
         self.stats = defaultdict(int)
         self.failed_downloads = []
         self.hash_mismatches = []
@@ -601,8 +602,9 @@ class ModlistInstaller:
                         fail += 1
                 except Exception:
                     fail += 1
-        self.stats['ok'] += ok
-        self.stats['fail'] += fail
+        with self._stats_lock:
+            self.stats['ok'] += ok
+            self.stats['fail'] += fail
         if label:
             log.debug(f"  {label}: {ok} placed, {fail} failed")
 
