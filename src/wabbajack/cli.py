@@ -261,6 +261,46 @@ def list_games():
     log.info(f"\n{found}/{len(GAME_DIRS)} games detected")
 
 
+@main.command('check-update')
+def check_update():
+    """Check for available updates."""
+    from .updater import check_for_update
+    info = check_for_update()
+    if info.get('error'):
+        log.warning(f"Update check failed: {info['error']}")
+        raise SystemExit(1)
+    log.info(f"Current version:  {info['current']}")
+    log.info(f"Latest version:   {info['latest']}")
+    log.info(f"Install type:     {info['install_type']}")
+    if info['update_available']:
+        log.info(f"\nUpdate available! Run 'wabbajack-py update' to install.")
+        if info.get('changelog'):
+            log.info(f"\nChangelog:\n{info['changelog'][:500]}")
+    else:
+        log.info("\nYou're up to date.")
+
+
+@main.command()
+def update():
+    """Update wabbajack-py to the latest version."""
+    from .updater import check_for_update, apply_update
+    log.info("Checking for updates...")
+    info = check_for_update()
+    if info.get('error'):
+        log.error(f"Update check failed: {info['error']}")
+        raise SystemExit(1)
+    if not info['update_available']:
+        log.info(f"Already at latest version ({info['current']})")
+        return
+    log.info(f"Updating {info['current']} -> {info['latest']} ({info['install_type']})")
+    result = apply_update(info)
+    if result['success']:
+        log.info(f"  {result['message']}")
+    else:
+        log.error(f"  {result['message']}")
+        raise SystemExit(1)
+
+
 @main.command('hash-file')
 @click.argument('file_path', type=click.Path(exists=True))
 def hash_file(file_path):

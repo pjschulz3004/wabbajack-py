@@ -38,6 +38,41 @@
   let games: GameInfo[] = $state([]);
   let gamesLoading: boolean = $state(false);
 
+  // Update state
+  let updateInfo: any = $state(null);
+  let updateChecking = $state(false);
+  let updateApplying = $state(false);
+  let updateError = $state('');
+
+  async function checkUpdate() {
+    updateChecking = true;
+    updateError = '';
+    try {
+      updateInfo = await api.checkUpdate();
+    } catch (e: any) {
+      updateError = e.message || 'Failed to check for updates';
+    } finally {
+      updateChecking = false;
+    }
+  }
+
+  async function applyUpdate() {
+    updateApplying = true;
+    updateError = '';
+    try {
+      const result = await api.applyUpdate();
+      if (result.success) {
+        updateInfo = { ...updateInfo, applied: true, message: result.message };
+      } else {
+        updateError = result.message || 'Update failed';
+      }
+    } catch (e: any) {
+      updateError = e.message || 'Update failed';
+    } finally {
+      updateApplying = false;
+    }
+  }
+
   // Nexus state
   let nexus: NexusStatusResponse = $state({ status: 'logged_out' });
   let nexusLoading: boolean = $state(true);
@@ -428,6 +463,63 @@
       {/if}
     </section>
 
+    <!-- Section 4: Updates -->
+    <section class="settings-section">
+      <div class="section-header">
+        <h2>Updates</h2>
+        <p class="section-desc">Check for and install new versions</p>
+      </div>
+
+      {#if updateError}
+        <div class="error-banner compact" role="alert">
+          <span>{updateError}</span>
+          <button class="btn btn-sm btn-ghost" onclick={() => { updateError = ''; }}>Dismiss</button>
+        </div>
+      {/if}
+
+      <div class="update-row">
+        <div class="update-info">
+          <span class="info-label">Current</span>
+          <span class="badge badge-accent">v{updateInfo?.current ?? '0.2.0'}</span>
+        </div>
+        {#if updateInfo?.latest && updateInfo.latest !== updateInfo.current}
+          <div class="update-info">
+            <span class="info-label">Latest</span>
+            <span class="badge badge-success">v{updateInfo.latest}</span>
+          </div>
+        {/if}
+        {#if updateInfo?.install_type}
+          <div class="update-info">
+            <span class="info-label">Install</span>
+            <span class="info-value">{updateInfo.install_type}</span>
+          </div>
+        {/if}
+      </div>
+
+      <div class="update-actions">
+        {#if updateInfo?.applied}
+          <p class="update-success">{updateInfo.message}</p>
+        {:else if updateInfo?.update_available}
+          <button class="btn btn-primary" onclick={applyUpdate} disabled={updateApplying}>
+            {updateApplying ? 'Updating...' : `Update to v${updateInfo.latest}`}
+          </button>
+          {#if updateInfo.changelog}
+            <details class="changelog">
+              <summary>Changelog</summary>
+              <pre class="changelog-body">{updateInfo.changelog}</pre>
+            </details>
+          {/if}
+        {:else}
+          <button class="btn btn-ghost" onclick={checkUpdate} disabled={updateChecking}>
+            {updateChecking ? 'Checking...' : 'Check for Updates'}
+          </button>
+          {#if updateInfo && !updateInfo.update_available && !updateInfo.error}
+            <span class="update-ok">Up to date</span>
+          {/if}
+        {/if}
+      </div>
+    </section>
+
     <!-- Save Button -->
     <div class="save-bar">
       <div class="save-status">
@@ -795,6 +887,76 @@
   .unsaved {
     color: var(--warning);
     font-weight: 500;
+  }
+
+  /* Updates */
+  .update-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    margin-bottom: 1rem;
+  }
+
+  .update-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .update-info .info-label {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+  }
+
+  .update-info .info-value {
+    font-size: 0.8rem;
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+
+  .update-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .update-success {
+    color: var(--success);
+    font-weight: 500;
+    font-size: 0.875rem;
+  }
+
+  .update-ok {
+    color: var(--success);
+    font-size: 0.8rem;
+    font-weight: 500;
+  }
+
+  .changelog {
+    width: 100%;
+    margin-top: 0.5rem;
+  }
+
+  .changelog summary {
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    font-weight: 600;
+  }
+
+  .changelog-body {
+    margin-top: 0.5rem;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    max-height: 300px;
+    overflow-y: auto;
   }
 
   @media (max-width: 600px) {

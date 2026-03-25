@@ -42,4 +42,6 @@ export const api = {
   nexusSsoStatus: () => get<any>('/auth/nexus/sso-status'),
   nexusSetKey: (key: string) => post<any>('/auth/nexus/key', { key }),
   nexusLogout: () => post<any>('/auth/nexus/logout'),
+  checkUpdate: () => get<any>('/update/check'),
+  applyUpdate: () => post<any>('/update/apply'),
 };

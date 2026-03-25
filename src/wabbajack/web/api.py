@@ -242,6 +242,22 @@ async def nexus_set_key(req: NexusKeyRequest):
     return get_nexus_status()
 
 
+# ── Updates ──────────────────────────────────────────────────────────
+
+@router.get("/update/check")
+async def update_check():
+    from ..updater import check_for_update
+    return check_for_update()
+
+
+@router.post("/update/apply")
+async def update_apply():
+    from ..updater import apply_update
+    return apply_update()
+
+
+# ── Nexus Auth (continued) ──────────────────────────────────────────
+
 @router.post("/auth/nexus/logout")
 async def nexus_logout():
     from .auth import logout
