@@ -134,6 +134,39 @@ def install(wabbajack, output, downloads, game_dir, nexus_key, workers,
 
 
 @main.command()
+@click.argument('output_dir', type=click.Path(exists=True))
+@click.option('--skip-download', is_flag=True, help='Skip download phase')
+@click.option('-k', '--nexus-key', envvar='NEXUS_API_KEY', help='Nexus API key')
+def reinstall(output_dir, skip_download, nexus_key):
+    """Re-run install from saved config (resumes where it left off)."""
+    from .config import InstallConfig
+    from .state import InstallState
+
+    config = InstallConfig(output_dir)
+    state = InstallState(output_dir)
+
+    wj_path = config.get('wabbajack_path')
+    if not wj_path or not Path(wj_path).exists():
+        log.error(f"No saved config in {output_dir} or .wabbajack file missing")
+        log.error(f"  Run 'wabbajack-py install' first to create the config")
+        raise SystemExit(1)
+
+    cfg = config.summary()
+    log.info(f"Resuming: {cfg.get('modlist_name', '?')} v{cfg.get('modlist_version', '?')}")
+    log.info(f"  State: {state.phase} ({state.summary()['completed_archives']} archives done)")
+
+    ml = WabbajackModlist(wj_path)
+    inst = ModlistInstaller(
+        ml, output_dir, cfg['downloads_dir'], cfg['game_dir'],
+        nexus_key=nexus_key,
+        workers=int(cfg.get('workers', 12)),
+        cache_dir=cfg.get('cache_dir'),
+        verify_hashes=cfg.get('verify_hashes', False)
+    )
+    inst.install(skip_download=skip_download)
+
+
+@main.command()
 @click.option('--base', type=click.Path(), help='Base directory for profiles')
 def profiles(base):
     """List installed modlist profiles."""

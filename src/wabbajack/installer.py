@@ -16,6 +16,7 @@ from .downloaders.mega import download_mega_files
 from .downloaders.gdrive import download_gdrive_files
 from .downloaders.moddb import download_moddb_files
 from .state import InstallState
+from .config import InstallConfig
 from .progress import print_install_complete, HAS_RICH
 
 log = logging.getLogger(__name__)
@@ -67,6 +68,7 @@ class ModlistInstaller:
         self.failed_downloads = []
         self.hash_mismatches = []
         self.state = InstallState(self.output)
+        self.config = InstallConfig(self.output)
 
     def _refresh_downloads_index(self):
         self.downloads_index = {}
@@ -731,6 +733,9 @@ class ModlistInstaller:
 
         log.info("\n=== Step 8: MO2 setup ===")
         self._setup_mo2()
+
+        log.info("\n=== Step 9: Saving config ===")
+        self.config.update_from_install(self)
 
         # Mark installation complete
         self.state.update_stats(self.stats['ok'], self.stats['fail'])

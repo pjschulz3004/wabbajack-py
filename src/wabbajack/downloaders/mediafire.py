@@ -2,9 +2,12 @@
 import re, time, logging
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from . import download_with_progress, USER_AGENT, MAX_RETRIES
 
 log = logging.getLogger(__name__)
+
+MEDIAFIRE_PARALLEL = 3
 
 
 def scrape_mediafire_link(url):
@@ -25,34 +28,45 @@ def scrape_mediafire_link(url):
     return match.group(1) if match else None
 
 
+def _download_one_mediafire(archive, downloads_dir):
+    """Download a single MediaFire archive. Returns (archive, success)."""
+    url = archive['State'].get('Url', '')
+    dest = downloads_dir / archive['Name']
+
+    if dest.exists() and dest.stat().st_size > 0:
+        return archive, True
+
+    for attempt in range(MAX_RETRIES):
+        try:
+            direct = scrape_mediafire_link(url)
+            if direct and download_with_progress(direct, dest, quiet=True):
+                return archive, True
+        except (HTTPError, URLError, OSError, TimeoutError, ValueError):
+            pass
+        if attempt < MAX_RETRIES - 1:
+            time.sleep(3)
+    return archive, False
+
+
 def download_mediafire_files(archives, downloads_dir, register_fn, failed_list):
-    """Download archives from MediaFire by scraping direct links."""
+    """Download archives from MediaFire with parallel scraping."""
     if not archives:
         return
-    log.info(f"\n--- Downloading {len(archives)} MediaFire files ---")
+    log.info(f"\n--- Downloading {len(archives)} MediaFire files ({MEDIAFIRE_PARALLEL} parallel) ---")
     ok = 0
-    for i, a in enumerate(archives):
-        url = a['State'].get('Url', '')
-        dest = downloads_dir / a['Name']
-        log.info(f"  [{i+1}/{len(archives)}] {a['Name']}")
+    completed = 0
 
-        success = False
-        for attempt in range(MAX_RETRIES):
-            try:
-                direct = scrape_mediafire_link(url)
-                if direct and download_with_progress(direct, dest):
-                    register_fn(a)
-                    ok += 1
-                    success = True
-                    break
-                elif not direct:
-                    log.warning(f"    Could not scrape direct link from: {url}")
-            except (HTTPError, URLError, OSError, TimeoutError, ValueError) as e:
-                log.error(f"    MediaFire error for {url}: {type(e).__name__}: {e}")
-            if attempt < MAX_RETRIES - 1:
-                log.info(f"    Retry {attempt+2}/{MAX_RETRIES}...")
-                time.sleep(3)
-        if not success:
-            failed_list.append(a)
+    with ThreadPoolExecutor(max_workers=MEDIAFIRE_PARALLEL) as pool:
+        futures = {pool.submit(_download_one_mediafire, a, downloads_dir): a for a in archives}
+        for future in as_completed(futures):
+            completed += 1
+            archive, success = future.result()
+            if success:
+                register_fn(archive)
+                ok += 1
+                log.info(f"  [{completed}/{len(archives)}] OK: {archive['Name'][:70]}")
+            else:
+                failed_list.append(archive)
+                log.warning(f"  [{completed}/{len(archives)}] FAIL: {archive['Name'][:70]}")
 
     log.info(f"  MediaFire: {ok}/{len(archives)} downloaded")
