@@ -135,6 +135,14 @@ async def switch_profile(name: str):
 @router.post("/modlist/open")
 async def open_modlist(wabbajack_path: str):
     from ..modlist import WabbajackModlist
+    # Validate: must be a .wabbajack file, no traversal, must exist
+    p = Path(wabbajack_path)
+    if '\x00' in wabbajack_path or '..' in p.parts:
+        raise HTTPException(400, "Invalid path")
+    if not p.suffix.lower() in ('.wabbajack', '.bak'):
+        raise HTTPException(400, "Not a .wabbajack file")
+    if not p.exists():
+        raise HTTPException(404, "File not found")
     try:
         with WabbajackModlist(wabbajack_path) as ml:
             return ml.summary()
@@ -223,11 +231,14 @@ async def nexus_sso_status():
     return {**status, "sso_complete": done}
 
 
+class NexusKeyRequest(BaseModel):
+    key: str
+
 @router.post("/auth/nexus/key")
-async def nexus_set_key(key: str):
-    """Manually set API key (alternative to SSO)."""
+async def nexus_set_key(req: NexusKeyRequest):
+    """Manually set API key (alternative to SSO). Key in body, not URL."""
     from .auth import save_token, get_nexus_status
-    save_token(key)
+    save_token(req.key)
     return get_nexus_status()
 
 

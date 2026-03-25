@@ -40,6 +40,6 @@ export const api = {
   nexusStatus: () => get<any>('/auth/nexus/status'),
   nexusLogin: () => get<any>('/auth/nexus/login'),
   nexusSsoStatus: () => get<any>('/auth/nexus/sso-status'),
-  nexusSetKey: (key: string) => post<any>(`/auth/nexus/key?key=${encodeURIComponent(key)}`),
+  nexusSetKey: (key: string) => post<any>('/auth/nexus/key', { key }),
   nexusLogout: () => post<any>('/auth/nexus/logout'),
 };

@@ -280,7 +280,10 @@ class ModlistInstaller:
             shutil.copyfile(src, dest)
             return True
         except (OSError, PermissionError) as e:
-            lvl = logging.WARNING if self.stats['fail'] < 20 else logging.DEBUG
+            # Use WARNING for first 20 failures, then DEBUG. Read under lock for thread safety.
+            with self._stats_lock:
+                fail_count = self.stats['fail']
+            lvl = logging.WARNING if fail_count < 20 else logging.DEBUG
             log.log(lvl, f'    Place failed: {dest} -- {e}')
             return False
 

@@ -72,24 +72,41 @@ def download_wabbajack_cdn(base_url, dest_path):
     dest_path = Path(dest_path)
     start = time.time()
 
-    # Download parts in parallel, then write sequentially by offset
-    workers = min(CDN_PARALLEL_PARTS, len(parts))
-    part_data = {}
-    try:
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {pool.submit(_download_part, base_url, p): p for p in parts}
-            for future in as_completed(futures):
-                idx, offset, data = future.result()
-                if data is None:
-                    dest_path.unlink(missing_ok=True)
-                    return False
-                part_data[idx] = (offset, data)
+    # Pre-allocate output file, write parts directly at their offsets
+    # This avoids holding all part data in memory (was O(file_size), now O(chunk_size * workers))
+    import threading as _thr
+    write_lock = _thr.Lock()
+    failed = False
 
-        # Write in order
+    def _download_and_write(part, f):
+        nonlocal failed
+        if failed:
+            return
+        _idx, _offset, data = _download_part(base_url, part)
+        if data is None:
+            failed = True
+            return
+        with write_lock:
+            f.seek(part.get('Offset', 0))
+            f.write(data)
+
+    workers = min(CDN_PARALLEL_PARTS, len(parts))
+    try:
         with open(dest_path, 'wb') as f:
-            for part in parts:
-                offset, data = part_data[part['Index']]
-                f.write(data)
+            # Pre-allocate file size
+            if total_size > 0:
+                f.seek(total_size - 1)
+                f.write(b'\0')
+                f.seek(0)
+
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = [pool.submit(_download_and_write, p, f) for p in parts]
+                for fut in as_completed(futures):
+                    fut.result()  # Propagate exceptions
+
+        if failed:
+            dest_path.unlink(missing_ok=True)
+            return False
 
     except (OSError, IOError) as e:
         log.error(f"    CDN write error ({type(e).__name__}): {e}")

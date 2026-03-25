@@ -50,13 +50,16 @@ class InstallState:
 
     @property
     def completed_hashes(self):
-        return set(self._data.get('completed_hashes', []))
+        if not hasattr(self, '_hash_set_cache'):
+            self._hash_set_cache = set(self._data.get('completed_hashes', []))
+        return self._hash_set_cache
 
     def mark_hash_done(self, archive_hash):
         """Mark an archive hash as fully processed (extracted + placed)."""
         hashes = self._data.setdefault('completed_hashes', [])
-        if archive_hash not in hashes:
+        if archive_hash not in self.completed_hashes:
             hashes.append(archive_hash)
+            self._hash_set_cache.add(archive_hash)
         # Save periodically (every 100 hashes)
         if len(hashes) % 100 == 0:
             self._save()
