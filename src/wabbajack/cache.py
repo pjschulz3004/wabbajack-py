@@ -65,14 +65,23 @@ class ArchiveCache:
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._index = {}
+        self._extracted = set()  # Cache of known-extracted archives
 
     def get_extract_dir(self, archive_name):
         safe = re.sub(r'[^\w\-.]', '_', archive_name)
         return self.cache_dir / safe
 
     def is_extracted(self, archive_name):
+        if archive_name in self._extracted:
+            return True
         d = self.get_extract_dir(archive_name)
-        return d.exists() and any(d.iterdir())
+        try:
+            if d.exists() and any(d.iterdir()):
+                self._extracted.add(archive_name)
+                return True
+        except OSError:
+            pass
+        return False
 
     def index_archive(self, archive_name):
         """Build case-insensitive index for an extracted archive."""

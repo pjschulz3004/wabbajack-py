@@ -492,8 +492,25 @@ class ModlistInstaller:
             if info:
                 self.archive_cache.index_archive(info['Name'])
 
+    def _extract_nested_archive(self, archive_path, archive_name):
+        """Extract a nested archive (BSA/7z/ZIP inside an outer archive) into the cache."""
+        nested_name = f"{archive_name}__{archive_path.name}"
+        if self.archive_cache.is_extracted(nested_name):
+            return nested_name
+        extract_dir = self.archive_cache.get_extract_dir(nested_name)
+        from .cache import extract_archive_worker
+        _, success, _, err = extract_archive_worker((str(archive_path), str(extract_dir)))
+        if success:
+            self.archive_cache.index_archive(nested_name)
+            return nested_name
+        log.debug(f"    Nested extract failed: {archive_path.name}: {err}")
+        return None
+
     def _resolve_directive_sources(self, archive_hash, directives):
-        """Resolve source files for directives. Returns list of (src, to_field) pairs."""
+        """Resolve source files for directives. Returns list of (src, to_field) pairs.
+
+        Handles nested archives (ArchiveHashPath depth 3+) by extracting inner archives.
+        """
         info = self.archive_by_hash.get(archive_hash)
         if not info:
             return [], len(directives)
@@ -513,14 +530,37 @@ class ModlistInstaller:
                     pairs.append((src, d.get('To', '')))
                 return pairs, 0
 
+        # Cache for nested archive names resolved in this batch
+        nested_cache = {}
+
         for d in directives:
             ahp = d.get('ArchiveHashPath', [])
-            internal_path = '\\'.join(ahp[1:]) if len(ahp) > 1 else ''
 
-            if not internal_path:
+            if len(ahp) <= 1:
                 src = self.find_archive_path(archive_hash)
+            elif len(ahp) == 2:
+                # Simple: outer_archive -> file
+                src = self.archive_cache.find_file(name, ahp[1])
+            elif len(ahp) >= 3:
+                # Nested: outer_archive -> inner_archive -> file [-> deeper...]
+                inner_archive_path_str = ahp[1]
+                inner_file = '\\'.join(ahp[2:])
+
+                # Find the inner archive in the outer extraction
+                inner_path = self.archive_cache.find_file(name, inner_archive_path_str)
+                if inner_path and inner_path.exists():
+                    cache_key = (name, inner_archive_path_str)
+                    if cache_key not in nested_cache:
+                        nested_cache[cache_key] = self._extract_nested_archive(inner_path, name)
+                    nested_name = nested_cache[cache_key]
+                    if nested_name:
+                        src = self.archive_cache.find_file(nested_name, inner_file)
+                    else:
+                        src = None
+                else:
+                    src = None
             else:
-                src = self.archive_cache.find_file(name, internal_path)
+                src = None
 
             if src and src.exists():
                 pairs.append((src, d.get('To', '')))
