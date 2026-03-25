@@ -20,11 +20,12 @@ class ProfileManager:
 
     _DEFAULTS = {'active': None, 'shared_downloads': '', 'profiles': {}}
 
+    def _fresh_defaults(self):
+        return {'active': None, 'shared_downloads': str(self.base / 'WabbajackDownloads'), 'profiles': {}}
+
     def _load(self):
         if not self.profiles_path.exists():
-            defaults = dict(self._DEFAULTS)
-            defaults['shared_downloads'] = str(self.base / 'WabbajackDownloads')
-            return defaults
+            return self._fresh_defaults()
         try:
             data = json.loads(self.profiles_path.read_text())
             if not isinstance(data.get('profiles'), dict):
@@ -32,9 +33,7 @@ class ProfileManager:
             return data
         except (json.JSONDecodeError, ValueError, OSError) as e:
             log.warning(f"Profile data corrupted ({e}), resetting to defaults: {self.profiles_path}")
-            defaults = dict(self._DEFAULTS)
-            defaults['shared_downloads'] = str(self.base / 'WabbajackDownloads')
-            return defaults
+            return self._fresh_defaults()
 
     def _save(self):
         tmp = self.profiles_path.with_suffix('.tmp')

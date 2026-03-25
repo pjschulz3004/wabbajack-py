@@ -98,7 +98,7 @@ async def websocket_endpoint(ws: WebSocket):
 
     drain_task = asyncio.create_task(drain())
 
-    VALID_COMMANDS = {"cancel", "skip_file", "manual_complete"}
+    VALID_COMMANDS = {"cancel", "pause", "resume", "skip_file", "manual_complete"}
     MAX_MSG_SIZE = 4096
 
     try:
