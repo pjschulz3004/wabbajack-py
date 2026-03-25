@@ -9,10 +9,8 @@ No authentication required.
 """
 import gzip, json, time, logging
 from pathlib import Path
-from urllib.request import Request, urlopen
-from urllib.error import HTTPError, URLError
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from . import USER_AGENT, DOWNLOAD_TIMEOUT, MAX_RETRIES
+from . import USER_AGENT, DOWNLOAD_TIMEOUT, MAX_RETRIES, _get_session
 
 log = logging.getLogger(__name__)
 
@@ -20,19 +18,23 @@ CDN_PARALLEL_PARTS = 4
 
 
 def _download_part(base_url, part):
-    """Download a single CDN part. Returns (index, offset, data) or (index, offset, None)."""
+    """Download a single CDN part. Returns (index, offset, data) or (index, offset, None).
+
+    Uses requests.Session for HTTP connection reuse (avoids TCP+TLS handshake per part).
+    """
     part_url = f"{base_url}/parts/{part['Index']}"
+    session = _get_session()
     for attempt in range(MAX_RETRIES):
         try:
-            req = Request(part_url, headers={'User-Agent': USER_AGENT})
-            resp = urlopen(req, timeout=DOWNLOAD_TIMEOUT)
-            data = resp.read()
+            resp = session.get(part_url, timeout=DOWNLOAD_TIMEOUT)
+            resp.raise_for_status()
+            data = resp.content
             expected = part.get('Size', 0)
             if expected and len(data) != expected:
                 log.debug(f"    Part {part['Index']} size mismatch ({len(data)} vs {expected}), retrying...")
                 continue
             return part['Index'], part.get('Offset', 0), data
-        except (HTTPError, URLError, OSError, TimeoutError) as e:
+        except (OSError, TimeoutError, Exception) as e:
             if attempt < MAX_RETRIES - 1:
                 log.debug(f"    Part {part['Index']} attempt {attempt+1} failed: {e}")
                 time.sleep(1)
@@ -44,20 +46,17 @@ def _download_part(base_url, part):
 def download_wabbajack_cdn(base_url, dest_path):
     """Download a file from WabbajackCDN using chunked protocol with parallel parts."""
     def_url = f"{base_url}/definition.json.gz"
-    req = Request(def_url, headers={'User-Agent': USER_AGENT})
+    session = _get_session()
 
     try:
-        resp = urlopen(req, timeout=30)
-        raw = resp.read()
-        definition = json.loads(gzip.decompress(raw))
-    except HTTPError as e:
-        log.error(f"    CDN definition HTTP {e.code}: {def_url}")
-        return False
-    except (URLError, OSError, TimeoutError) as e:
-        log.error(f"    CDN definition connection failed ({type(e).__name__}): {def_url}")
-        return False
-    except (gzip.BadGzipFile, json.JSONDecodeError, ValueError) as e:
-        log.error(f"    CDN definition parse failed ({type(e).__name__}: {e}): {def_url}")
+        resp = session.get(def_url, timeout=30)
+        resp.raise_for_status()
+        definition = json.loads(gzip.decompress(resp.content))
+    except Exception as e:
+        if hasattr(e, 'response') and hasattr(e.response, 'status_code'):
+            log.error(f"    CDN definition HTTP {e.response.status_code}: {def_url}")
+        else:
+            log.error(f"    CDN definition failed ({type(e).__name__}): {def_url}")
         return False
 
     parts = sorted(definition.get('Parts', []), key=lambda p: p['Index'])
