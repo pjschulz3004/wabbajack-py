@@ -73,9 +73,6 @@ class InstallState:
         self._data['completed_at'] = time.strftime('%Y-%m-%d %H:%M:%S')
         self._save()
 
-    def is_hash_done(self, archive_hash):
-        return archive_hash in self.completed_hashes
-
     def save(self):
         self._save()
 

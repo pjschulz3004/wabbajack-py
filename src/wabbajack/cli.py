@@ -68,25 +68,10 @@ def serve(port, no_browser, host):
 @click.argument('wabbajack', type=click.Path(exists=True))
 def info(wabbajack):
     """Show modlist details."""
-    from .progress import print_modlist_info, HAS_RICH
+    from .progress import print_modlist_info
     with WabbajackModlist(wabbajack) as ml:
         s = ml.summary()
-    if HAS_RICH:
-        print_modlist_info(s)
-    else:
-        log.info(f"Name:       {s['name']}")
-        log.info(f"Version:    {s['version']}")
-        log.info(f"Author:     {s['author']}")
-        log.info(f"Game:       {s['game']}")
-        log.info(f"NSFW:       {s['nsfw']}")
-        log.info(f"Archives:   {s['archives']}")
-        log.info(f"Directives: {s['directives']}")
-        log.info(f"\nDirective types:")
-        for t, c in sorted(s['directive_types'].items(), key=lambda x: -x[1]):
-            log.info(f"  {c:>8}  {t}")
-        log.info(f"\nArchive sources:")
-        for t, c in sorted(s['archive_types'].items(), key=lambda x: -x[1]):
-            log.info(f"  {c:>6}  {t}")
+    print_modlist_info(s)
 
 
 @main.command()

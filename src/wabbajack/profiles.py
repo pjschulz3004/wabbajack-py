@@ -18,8 +18,6 @@ class ProfileManager:
         self.profiles_path = self.base / PROFILES_FILE
         self._data = self._load()
 
-    _DEFAULTS = {'active': None, 'shared_downloads': '', 'profiles': {}}
-
     def _fresh_defaults(self):
         return {'active': None, 'shared_downloads': str(self.base / 'WabbajackDownloads'), 'profiles': {}}
 
@@ -97,11 +95,12 @@ class ProfileManager:
 
         if new_wabbajack_path:
             with WabbajackModlist(new_wabbajack_path) as ml:
-                new_hashes = {a['Hash'] for a in ml.archives}
-            reusable = new_hashes & set(all_hashes.keys())
-            new_only = new_hashes - set(all_hashes.keys())
-            reusable_size = sum(a.get('Size', 0) for a in ml.archives if a['Hash'] in reusable)
-            new_size = sum(a.get('Size', 0) for a in ml.archives if a['Hash'] in new_only)
+                archives = ml.archives
+                new_hashes = {a['Hash'] for a in archives}
+                reusable = new_hashes & set(all_hashes.keys())
+                new_only = new_hashes - set(all_hashes.keys())
+                reusable_size = sum(a.get('Size', 0) for a in archives if a['Hash'] in reusable)
+                new_size = sum(a.get('Size', 0) for a in archives if a['Hash'] in new_only)
             result.update({
                 'new_title': ml.name, 'new_version': ml.version,
                 'new_total': len(new_hashes), 'reusable': len(reusable),
