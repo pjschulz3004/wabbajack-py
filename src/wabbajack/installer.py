@@ -725,8 +725,10 @@ class ModlistInstaller:
             log.info(f"  Remapped {remapped_count} inline files with actual paths")
         self._place_batch_parallel(inline_pairs, "Inline files")
 
-        log.info(f"\n=== Step 6: Installing {len(patched)} patched files (base copy) ===")
-        patch_pairs = []
+        log.info(f"\n=== Step 6: Applying {len(patched)} patched files ===")
+        from .octodiff import apply_delta
+        patch_ok = 0
+        patch_fallback = 0
         for d in patched:
             ahp = d.get('ArchiveHashPath', [])
             if not ahp:
@@ -743,11 +745,33 @@ class ModlistInstaller:
                 src = self.archive_cache.find_file(info['Name'], internal_path)
             if not src:
                 src = self.find_archive_path(archive_hash)
-            if src and src.exists():
-                patch_pairs.append((src, d.get('To', '')))
+            if not src or not src.exists():
+                self.stats['fail'] += 1
+                continue
+
+            to_field = d.get('To', '')
+            patch_id = d.get('PatchID', '')
+            dest = self.output / to_field.replace('\\', '/')
+
+            if patch_id:
+                # Apply OctoDiff delta: basis + patch -> output
+                delta_path = self.inline_dir / patch_id
+                if delta_path.exists():
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    if apply_delta(src, delta_path, dest):
+                        patch_ok += 1
+                        continue
+                    else:
+                        log.warning(f"  Delta failed for {to_field}, falling back to base copy")
+
+            # Fallback: copy base file (patch data missing or failed)
+            if self._place_file(src, to_field):
+                patch_fallback += 1
             else:
                 self.stats['fail'] += 1
-        self._place_batch_parallel(patch_pairs, "Patched files")
+
+        log.info(f"  Patched: {patch_ok} applied, {patch_fallback} base-copy fallback, "
+                 f"{self.stats['fail']} failed")
 
         if bsas:
             log.info(f"\n=== Step 7: BSA creation ({len(bsas)} archives) ===")
