@@ -15,7 +15,7 @@ let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setInterval> | null = null;
 
 export function connectWs() {
-  if (ws?.readyState === WebSocket.OPEN) return;
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
 
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   ws = new WebSocket(`${proto}//${location.host}/ws`);
@@ -33,7 +33,12 @@ export function connectWs() {
   };
 
   ws.onmessage = (event) => {
-    const msg: WsMessage = JSON.parse(event.data);
+    let msg: WsMessage;
+    try {
+      msg = JSON.parse(event.data);
+    } catch {
+      return; // Drop malformed messages
+    }
     switch (msg.type) {
       case 'log':
         logs.update(l => {
@@ -49,7 +54,10 @@ export function connectWs() {
         installState.set(msg);
         break;
       case 'manual_needed':
-        manualDownloads.update(m => [...m, msg]);
+        manualDownloads.update(m => {
+          if (m.some(d => d.name === msg.name)) return m; // Deduplicate
+          return [...m, msg];
+        });
         break;
       case 'manual_complete':
         manualDownloads.update(m => m.filter(d => d.name !== msg.name));

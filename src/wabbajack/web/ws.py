@@ -38,12 +38,12 @@ async def broadcast(msg: dict):
     """Send a message to all connected WebSocket clients."""
     data = json.dumps(msg)
     dead = set()
-    for ws in _clients:
+    for ws in list(_clients):  # Iterate copy to avoid mutation during iteration
         try:
             await ws.send_text(data)
         except Exception:
             dead.add(ws)
-    _clients -= dead
+    _clients.difference_update(dead)
 
 
 def _safe_put(msg):
@@ -90,7 +90,10 @@ async def websocket_endpoint(ws: WebSocket):
                 await broadcast(msg)
             except asyncio.TimeoutError:
                 continue
-            except Exception:
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logging.getLogger(__name__).debug(f"WS drain error: {e}")
                 break
 
     drain_task = asyncio.create_task(drain())

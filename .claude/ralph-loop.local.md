@@ -1,6 +1,6 @@
 ---
 active: true
-iteration: 2
+iteration: 4
 session_id: 
 max_iterations: 5
 completion_promise: "All critical issues from parallel audit agents are resolved"
