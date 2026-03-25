@@ -1,14 +1,14 @@
 """Self-update logic for wabbajack-py."""
 import logging, os, platform, shutil, subprocess, sys, tempfile
 from pathlib import Path
-from packaging.version import Version
 
 from . import __version__
 
 log = logging.getLogger(__name__)
 
-GITHUB_REPO = "wabbajack-tools/wabbajack-py"
-GITHUB_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+GITHUB_REPO = "pjschulz3004/wabbajack-py"
+GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+GITHUB_API_COMMITS = f"https://api.github.com/repos/{GITHUB_REPO}/commits/main"
 CURRENT_VERSION = __version__
 
 
@@ -27,19 +27,109 @@ def _is_pip_install() -> bool:
         return False
 
 
+def _find_git_root() -> Path | None:
+    """Find the git root of the project (for dev installs)."""
+    # Walk up from the package source
+    pkg_dir = Path(__file__).resolve().parent  # src/wabbajack/
+    for parent in [pkg_dir, pkg_dir.parent, pkg_dir.parent.parent]:
+        if (parent / '.git').exists():
+            return parent
+    return None
+
+
 def get_install_type() -> str:
     if _is_frozen():
         return 'binary'
+    if _find_git_root():
+        return 'dev'
     if _is_pip_install():
         return 'pip'
     return 'dev'
 
 
 def check_for_update(timeout: int = 10) -> dict:
-    """Check GitHub releases for a newer version.
+    """Check for updates. For dev installs, checks git commits. For releases, checks GitHub releases."""
+    install_type = get_install_type()
 
-    Returns dict with: current, latest, update_available, download_url, release_url, changelog
-    """
+    if install_type == 'dev':
+        return _check_dev_update(timeout)
+    return _check_release_update(timeout)
+
+
+def _check_dev_update(timeout: int) -> dict:
+    """Check if there are new commits on the remote."""
+    git_root = _find_git_root()
+    result = {
+        'current': CURRENT_VERSION,
+        'latest': CURRENT_VERSION,
+        'update_available': False,
+        'install_type': 'dev',
+        'download_url': None,
+        'release_url': f'https://github.com/{GITHUB_REPO}',
+        'changelog': '',
+        'git_root': str(git_root) if git_root else None,
+    }
+
+    if not git_root:
+        result['error'] = 'Cannot find git root directory'
+        return result
+
+    try:
+        # Get local HEAD commit
+        local = subprocess.run(
+            ['git', 'rev-parse', 'HEAD'],
+            capture_output=True, text=True, timeout=5, cwd=git_root,
+        )
+        local_sha = local.stdout.strip()[:7]
+
+        # Fetch remote to check for new commits
+        subprocess.run(
+            ['git', 'fetch', 'origin', '--quiet'],
+            capture_output=True, timeout=timeout, cwd=git_root,
+        )
+
+        # Compare local vs remote
+        behind = subprocess.run(
+            ['git', 'rev-list', '--count', 'HEAD..origin/main'],
+            capture_output=True, text=True, timeout=5, cwd=git_root,
+        )
+        behind_count = int(behind.stdout.strip()) if behind.returncode == 0 else 0
+
+        # Also try master if main doesn't exist
+        if behind_count == 0 and behind.returncode != 0:
+            behind = subprocess.run(
+                ['git', 'rev-list', '--count', 'HEAD..origin/master'],
+                capture_output=True, text=True, timeout=5, cwd=git_root,
+            )
+            behind_count = int(behind.stdout.strip()) if behind.returncode == 0 else 0
+
+        result['current'] = f'{CURRENT_VERSION} ({local_sha})'
+
+        if behind_count > 0:
+            result['update_available'] = True
+            result['latest'] = f'{behind_count} new commits'
+            # Get commit log for changelog
+            changelog = subprocess.run(
+                ['git', 'log', '--oneline', 'HEAD..origin/main', '--max-count=20'],
+                capture_output=True, text=True, timeout=5, cwd=git_root,
+            )
+            if changelog.returncode != 0:
+                changelog = subprocess.run(
+                    ['git', 'log', '--oneline', 'HEAD..origin/master', '--max-count=20'],
+                    capture_output=True, text=True, timeout=5, cwd=git_root,
+                )
+            result['changelog'] = changelog.stdout.strip()
+        else:
+            result['latest'] = f'{CURRENT_VERSION} (up to date)'
+
+    except Exception as e:
+        result['error'] = str(e)
+
+    return result
+
+
+def _check_release_update(timeout: int) -> dict:
+    """Check GitHub releases for a newer version."""
     import requests
 
     result = {
@@ -53,12 +143,11 @@ def check_for_update(timeout: int = 10) -> dict:
     }
 
     try:
-        resp = requests.get(GITHUB_API, timeout=timeout, headers={
+        resp = requests.get(GITHUB_API_RELEASES, timeout=timeout, headers={
             'Accept': 'application/vnd.github.v3+json',
             'User-Agent': f'wabbajack-py/{CURRENT_VERSION}',
         })
         if resp.status_code == 404:
-            # No releases yet
             return result
         resp.raise_for_status()
         data = resp.json()
@@ -76,13 +165,11 @@ def check_for_update(timeout: int = 10) -> dict:
     result['changelog'] = data.get('body', '')[:2000]
 
     try:
+        from packaging.version import Version
         if Version(tag) > Version(CURRENT_VERSION):
             result['update_available'] = True
-
-            # Find matching asset for this platform
             system = platform.system().lower()
-            assets = data.get('assets', [])
-            for asset in assets:
+            for asset in data.get('assets', []):
                 name = asset['name'].lower()
                 if system == 'linux' and ('linux' in name or 'appimage' in name):
                     result['download_url'] = asset['browser_download_url']
@@ -94,7 +181,7 @@ def check_for_update(timeout: int = 10) -> dict:
                     result['download_url'] = asset['browser_download_url']
                     break
     except Exception:
-        pass
+        pass  # packaging not installed or version parse failed
 
     return result
 
@@ -107,16 +194,56 @@ def apply_update(info: dict | None = None) -> dict:
     if not info.get('update_available'):
         return {'success': False, 'message': 'Already up to date'}
 
-    install_type = info['install_type']
+    install_type = info.get('install_type', get_install_type())
 
-    if install_type == 'pip':
+    if install_type == 'dev':
+        return _update_dev()
+    elif install_type == 'pip':
         return _update_pip()
     elif install_type == 'binary':
         if info.get('download_url'):
             return _update_binary(info['download_url'])
         return {'success': False, 'message': 'No binary available for this platform'}
-    else:
-        return {'success': False, 'message': 'Dev install -- use git pull instead'}
+    return {'success': False, 'message': f'Unknown install type: {install_type}'}
+
+
+def _update_dev() -> dict:
+    """Update dev install: git pull + pip install -e ."""
+    git_root = _find_git_root()
+    if not git_root:
+        return {'success': False, 'message': 'Cannot find git root directory'}
+
+    try:
+        # git pull
+        pull = subprocess.run(
+            ['git', 'pull', '--ff-only'],
+            capture_output=True, text=True, timeout=30, cwd=git_root,
+        )
+        if pull.returncode != 0:
+            return {'success': False, 'message': f'git pull failed: {pull.stderr[:500]}'}
+
+        # Reinstall in editable mode
+        pip_result = subprocess.run(
+            [sys.executable, '-m', 'pip', 'install', '-e', str(git_root), '--quiet'],
+            capture_output=True, text=True, timeout=120, cwd=git_root,
+        )
+
+        # Rebuild frontend if npm is available
+        frontend_dir = git_root / 'frontend'
+        if frontend_dir.exists() and (frontend_dir / 'package.json').exists():
+            subprocess.run(
+                ['npx', 'vite', 'build'],
+                capture_output=True, timeout=60, cwd=frontend_dir,
+            )
+
+        commits = pull.stdout.strip()
+        return {
+            'success': True,
+            'message': f'Updated from git. {commits}. Restart to use new version.',
+            'restart_required': True,
+        }
+    except Exception as e:
+        return {'success': False, 'message': str(e)}
 
 
 def _update_pip() -> dict:
@@ -145,8 +272,9 @@ def _update_binary(download_url: str) -> dict:
     if not current_exe.exists():
         return {'success': False, 'message': 'Cannot find current executable'}
 
+    backup = None
+    tmp = None
     try:
-        # Download to temp file
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=current_exe.suffix, dir=current_exe.parent)
         log.info(f"Downloading update from {download_url}")
 
@@ -156,11 +284,9 @@ def _update_binary(download_url: str) -> dict:
                 tmp.write(chunk)
         tmp.close()
 
-        # Make executable
         os.chmod(tmp.name, 0o755)
 
-        # Swap: current -> .old, new -> current
-        backup = current_exe.with_suffix(current_exe.suffix + '.old')  # type: Path
+        backup = current_exe.with_suffix(current_exe.suffix + '.old')
         backup.unlink(missing_ok=True)
         current_exe.rename(backup)
         shutil.move(tmp.name, str(current_exe))
@@ -171,15 +297,14 @@ def _update_binary(download_url: str) -> dict:
             'restart_required': True,
         }
     except Exception as e:
-        # Clean up temp file
-        try:
-            Path(tmp.name).unlink(missing_ok=True)
-        except Exception:
-            pass
-        # Restore backup if swap failed
-        try:
-            if backup.exists() and not current_exe.exists():
+        if tmp:
+            try:
+                Path(tmp.name).unlink(missing_ok=True)
+            except Exception:
+                pass
+        if backup and backup.exists() and not current_exe.exists():
+            try:
                 backup.rename(current_exe)
-        except Exception:
-            pass
+            except Exception:
+                pass
         return {'success': False, 'message': f'Binary update failed: {e}'}

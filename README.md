@@ -1,148 +1,187 @@
 # wabbajack-py
 
-Cross-platform Wabbajack modlist installer. Downloads, extracts, and places mod files from `.wabbajack` modlist files on Windows, macOS, and Linux.
+Cross-platform Wabbajack modlist installer with web GUI. Runs natively on Linux, macOS, and Windows.
+
+**Why?** Wabbajack only runs on Windows. This is a from-scratch Python implementation that handles the same `.wabbajack` modlist files but works everywhere. Built for gamers who mod on Linux/macOS via Proton/Wine.
 
 ## Features
 
-- **8 download sources**: Nexus (Premium), MediaFire, Mega, Google Drive, ModDB, WabbajackCDN, HTTP, game files
-- **Parallel everything**: downloads (4 threads), extraction (12 workers), file placement (ThreadPoolExecutor)
-- **Resume support**: interrupted downloads resume from where they left off (.part files)
-- **Connection pooling**: HTTP keep-alive via requests.Session (20-connection pool)
-- **41 supported games**: all Wabbajack-supported titles auto-detected via Steam
-- **Cross-platform**: Windows, macOS, Linux with case-insensitive file matching
-- **Hash verification**: xxHash64 warn-only mode (never blocks)
-- **MO2 integration**: portable.txt, ModOrganizer.ini remapping, .meta files, path magic replacement
-- **Optimized re-install**: skips already-correct files based on size
-- **Multi-modlist profiles**: shared downloads across modlists
-- **10 CLI commands**: info, install, download, verify, status, list-games, hash-file, extract, list-downloads, profiles
-
-## Install
-
-```bash
-pip install .                    # basic install
-pip install ".[gdrive]"          # with Google Drive support (gdown)
-```
-
-### System dependencies
-
-- **7z** (p7zip): for extracting archives
-- **megadl** (megatools): for Mega.nz downloads (optional)
-- **gdown**: for Google Drive downloads (optional, installed with `[gdrive]`)
+- **Full modlist installation** -- downloads, extracts, places 650K+ file directives from `.wabbajack` files
+- **9 download sources** -- Nexus, MediaFire, Mega, Google Drive, WabbajackCDN, HTTP, ModDB, game files, manual
+- **Web GUI** -- dark gaming-native UI with real-time progress, log viewer, settings, gallery browsing
+- **Load order management** -- plugins.txt/modlist.txt for Bethesda games, modsettings.lsx for BG3, REDmod for Cyberpunk, SMAPI for Stardew
+- **Nexus OAuth** -- SSO login (premium auto-download) + API key fallback (manual download guidance for free accounts)
+- **Multi-profile** -- manage multiple modlist installs with shared downloads
+- **Self-updating** -- check for and apply updates from the app or CLI
+- **Cross-platform** -- Linux, macOS, Windows. Handles case-insensitive paths, Proton prefixes, Wine BSA creation
 
 ## Quick Start
 
 ```bash
-# Check modlist contents
-wabbajack-py info modlist.wabbajack
+# Clone and install
+git clone https://github.com/pjschulz3004/wabbajack-py.git
+cd wabbajack-py
+pip install -e ".[all]"
 
-# Check what games are installed
-wabbajack-py list-games
+# Launch the web GUI
+wabbajack-py serve
 
-# See download status
-wabbajack-py status modlist.wabbajack -d ./downloads
+# Or use the CLI
+wabbajack-py info path/to/modlist.wabbajack
+wabbajack-py install path/to/modlist.wabbajack -o ~/Games/MyModlist -d ~/Downloads/WJ -g ~/Games/Skyrim
+```
 
-# Full install
-export NEXUS_API_KEY=your_key_here
-wabbajack-py install modlist.wabbajack -o ./output -d ./downloads -j 12
+## Installation
+
+### From source (recommended for development)
+
+```bash
+git clone https://github.com/pjschulz3004/wabbajack-py.git
+cd wabbajack-py
+python -m venv .venv
+source .venv/bin/activate  # Linux/macOS
+pip install -e ".[all]"
+```
+
+### Dependencies
+
+**Required:** Python 3.10+, click, xxhash, requests
+
+**Optional extras:**
+- `pip install -e ".[web]"` -- FastAPI, uvicorn, httpx (for web GUI)
+- `pip install -e ".[rich]"` -- Rich terminal output
+- `pip install -e ".[bsa]"` -- BSA archive creation (sse-bsa)
+- `pip install -e ".[all]"` -- everything
+
+### Build the frontend (for web GUI)
+
+```bash
+cd frontend
+npm install
+npx vite build
 ```
 
 ## CLI Commands
 
-```bash
-# Modlist info
-wabbajack-py info modlist.wabbajack
+| Command | Description |
+|---------|-------------|
+| `serve` | Launch web GUI (default: http://localhost:6969) |
+| `info <.wabbajack>` | Show modlist info (name, game, archives, directives) |
+| `install <.wabbajack>` | Full install with all options |
+| `download <.wabbajack>` | Download archives only |
+| `verify <.wabbajack>` | Verify archive hashes |
+| `status <.wabbajack>` | Show installation progress |
+| `load-order <game>` | Show/validate mod load order |
+| `profiles` | List modlist profiles |
+| `check-update` | Check for new versions |
+| `update` | Apply available update |
+| `list-games` | Show detected game installations |
+| `list-downloads <.wabbajack>` | List archives by source type |
 
-# Full install (download + extract + place)
-wabbajack-py install modlist.wabbajack -o ./output -d ./downloads -j 12
-
-# Download only (no install)
-wabbajack-py download modlist.wabbajack -d ./downloads
-
-# Download specific types only
-wabbajack-py download modlist.wabbajack -d ./downloads --type mediafire --type gdrive
-
-# Verify archive hashes
-wabbajack-py verify modlist.wabbajack -d ./downloads
-
-# Installation status
-wabbajack-py status modlist.wabbajack -d ./downloads -o ./output
-
-# List archives by type
-wabbajack-py list-downloads modlist.wabbajack -d ./downloads
-
-# Detect installed games
-wabbajack-py list-games
-
-# Hash a single file
-wabbajack-py hash-file somefile.7z
-
-# Extract inline data from .wabbajack
-wabbajack-py extract modlist.wabbajack -o ./inline-data
-
-# Skip downloads (use existing files)
-wabbajack-py install modlist.wabbajack -o ./output -d ./downloads --skip-download
-
-# Verbose + log file
-wabbajack-py -v --log-file install.log install modlist.wabbajack -o ./output -d ./downloads
-```
-
-## Multi-Modlist Profiles
-
-Share a single downloads directory across multiple modlists:
+## Web GUI
 
 ```bash
-# Install first modlist with profile
-wabbajack-py install first.wabbajack -o ~/Games/FirstList -d ~/Games/Downloads --profile first
-
-# Check reuse potential for second modlist
-wabbajack-py shared --new second.wabbajack
-
-# Install second modlist (shared downloads)
-wabbajack-py install second.wabbajack -o ~/Games/SecondList -d ~/Games/Downloads --profile second
-
-# Switch between profiles
-wabbajack-py profiles
-wabbajack-py switch first
+wabbajack-py serve --port 6969
 ```
 
-## Environment Variables
+Opens a browser to the web interface with:
+- **Gallery** -- browse Wabbajack modlist catalog
+- **Install** -- start/pause/cancel installations with real-time progress
+- **Downloads** -- sortable archive table with status (5667+ rows, virtualized)
+- **Profiles** -- manage multiple modlist installations
+- **Settings** -- paths, workers, Nexus auth, update checker
 
-| Variable | Purpose |
-|----------|---------|
-| `NEXUS_API_KEY` | Nexus Mods API key (Premium required for auto-download) |
+## Load Order Management
 
-## How It Works
+Supports reading, writing, and validating load orders for:
 
-1. **Parse**: Reads the `.wabbajack` ZIP (modlist JSON with archives + directives)
-2. **Download**: Parallel fetches from all sources (game files, CDN, HTTP, MediaFire, Mega, GDrive, ModDB, Nexus)
-3. **Extract**: Parallel extraction into cache using 7z/zipfile
-4. **Place**: Parallel file placement per directives with size-check skip
-5. **Remap**: RemappedInlineFile path magic replaced with actual paths
-6. **MO2 Setup**: portable.txt, INI remapping, .meta files, standard dirs
-7. **Patch**: PatchedFromArchive uses base copies (binary patching WIP)
-8. **BSA**: CreateBSA logged to bsa-todo.txt (BSA packing WIP)
+| Game | Format | Features |
+|------|--------|----------|
+| Skyrim SE/LE | plugins.txt, modlist.txt, loadorder.txt | ESP header reading, master dependency validation, ESL flag detection |
+| Fallout 4 | plugins.txt, modlist.txt | Same Bethesda engine support |
+| Starfield | plugins.txt, modlist.txt | Same Bethesda engine support |
+| Oblivion | plugins.txt, modlist.txt | Same Bethesda engine support |
+| Enderal SE | plugins.txt, modlist.txt | Same Bethesda engine support |
+| Baldur's Gate 3 | modsettings.lsx | XML parser, Proton prefix auto-detect |
+| Cyberpunk 2077 | load_order.txt | REDmod + archive mod detection |
+| Stardew Valley | manifest.json | SMAPI dependency graph |
 
-## Known Limitations
+```bash
+# Show Skyrim load order
+wabbajack-py load-order SkyrimSpecialEdition --validate
 
-- **Binary patching**: PatchedFromArchive copies base file, doesn't apply OctoDiff delta
-- **BSA/BA2 creation**: CreateBSA directives need a BSA packing library
-- **LoversLab/VectorPlexus**: IPS4 OAuth2 downloaders not implemented
-- **Texture transforms**: TransformedTexture (DDS recompression) not implemented
-- **Modlist compilation**: Install-only (no MO2 -> .wabbajack export)
+# List supported games
+wabbajack-py load-order list
+```
 
-## Platform Notes
+## Updating
 
-### Linux
-- Case-insensitive file matching handles Windows paths automatically
-- Use Proton/Wine for MO2 after installation
-- Games detected from `~/.local/share/Steam/` and Flatpak paths
+The app can update itself:
 
-### Windows
-- Native case-insensitive filesystem
-- Games detected from Steam registry and common install paths
+```bash
+# Check for updates
+wabbajack-py check-update
 
-### macOS
-- Games detected from `~/Library/Application Support/Steam/`
+# Apply update (git pull for dev installs, pip upgrade for pip installs)
+wabbajack-py update
+```
+
+Or use the Settings page in the web GUI.
+
+- **Dev installs:** checks for new git commits, runs `git pull --ff-only` + reinstalls
+- **Pip installs:** checks PyPI, runs `pip install --upgrade`
+- **Binary installs:** checks GitHub releases, downloads and swaps the binary
+
+## Architecture
+
+```
+src/wabbajack/
+  installer.py     # Main orchestrator (651K+ directives, parallel extraction)
+  modlist.py        # .wabbajack ZIP parser
+  loadorder.py      # Load order management (9 games)
+  downloaders/      # 9 source handlers (Nexus, Mega, CDN, etc.)
+  cache.py          # Archive extraction cache with 7z/unzip
+  hash.py           # xxHash64 verification
+  profiles.py       # Multi-modlist profile management
+  platform.py       # 41-game detection across Steam libraries
+  updater.py        # Self-update (git/pip/binary)
+  web/              # FastAPI + WebSocket backend
+    api.py          # REST endpoints
+    ws.py           # Real-time progress streaming
+    gallery.py      # Wabbajack modlist catalog
+    auth.py         # Nexus SSO + keyring
+
+frontend/src/       # Svelte 5 + TypeScript
+  App.svelte        # Sidebar layout, mobile responsive
+  routes/           # Gallery, Install, Downloads, Profiles, Settings
+  lib/components/   # ProgressBar, LogViewer, ModCard (virtual scrolling)
+  lib/stores/       # WebSocket store with auto-reconnect
+```
+
+## Development
+
+```bash
+# Run tests
+python -m pytest tests/ -v
+
+# Run frontend dev server (hot reload)
+cd frontend && npm run dev
+
+# Run backend
+wabbajack-py serve --port 6969
+```
+
+98 unit tests cover: URL validation, archive classification, hash verification, path traversal protection, state persistence, profile management, modlist parsing, web API, WebSocket protocol.
+
+## Supported Games (41)
+
+Bethesda: Morrowind, Oblivion, Oblivion Remastered, Skyrim LE/SE/VR, Enderal/SE, Fallout 3/NV/4/4VR/76/London, Starfield
+
+RPG/Action: Baldur's Gate 3, Cyberpunk 2077, Witcher 3, Dragon's Dogma 1/2, Kingdom Come 1/2, Bannerlord, KOTOR 2, VTM: Bloodlines
+
+Strategy/Sim: Stardew Valley, Terraria, KSP, Valheim, No Man's Sky, Sims 4, 7 Days to Die
+
+Plus: Dragon Age Origins/2/Inquisition/Veilguard, Darkest Dungeon, MechWarrior 5, and more.
 
 ## License
 

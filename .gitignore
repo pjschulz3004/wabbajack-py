@@ -1,3 +1,13 @@
 __pycache__/
+*.pyc
 .venv/
+*.egg-info/
+dist/
+build/
 src/wabbajack/web/static/
+frontend/dist/
+frontend/node_modules/
+.pytest_cache/
+.wj-install-state.json
+.wj-config.json
+*.part
