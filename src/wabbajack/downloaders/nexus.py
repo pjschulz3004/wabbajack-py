@@ -97,7 +97,7 @@ def _nexus_download_one(archive, downloads_dir, nexus_client, api_lock):
         # Serialize API calls (rate-limited), parallelize actual downloads
         with api_lock:
             dl_url = nexus_client.download_link(game, mod_id, file_id)
-            time.sleep(NEXUS_RATE_DELAY)
+        time.sleep(NEXUS_RATE_DELAY)  # Sleep outside lock so other threads can call API
         if dl_url:
             if download_with_progress(dl_url, dest, quiet=True):
                 return archive, True

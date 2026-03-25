@@ -6,7 +6,7 @@ from urllib.parse import quote, urlparse, urlunparse
 log = logging.getLogger(__name__)
 
 USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0'
-CHUNK_SIZE = 256 * 1024
+CHUNK_SIZE = 1024 * 1024  # 1 MB -- reduces Python loop overhead 4x for multi-GB files
 DOWNLOAD_TIMEOUT = 600
 MAX_RETRIES = 3
 

@@ -146,6 +146,9 @@ class ModlistInstaller:
         except (UnicodeDecodeError, AttributeError):
             return data  # Binary file, no remapping needed
 
+        if '{--||' not in text:
+            return data  # Fast path: no magic strings possible
+
         paths = {
             'game': str(self.game_dir),
             'output': str(self.output),
@@ -257,14 +260,14 @@ class ModlistInstaller:
         Validates against path traversal. Skips if dest already matches source size.
         Returns True on success.
         """
-        dest = self.output / to_field.replace('\\', '/')
-        try:
-            resolved = str(dest.resolve())
-            if not resolved.startswith(self._output_resolved):
-                log.warning(f"  Path traversal blocked: {to_field}")
-                return False
-        except (OSError, ValueError):
+        # String-based traversal check (avoids resolve() syscall per file)
+        normalized = to_field.replace('\\', '/')
+        parts = normalized.split('/')
+        if '..' in parts or normalized.startswith('/'):
+            log.warning(f"  Path traversal blocked: {to_field}")
             return False
+
+        dest = self.output / normalized
 
         # Skip if destination already exists with matching size (optimized re-install)
         try:
@@ -497,9 +500,11 @@ class ModlistInstaller:
         ok, fail = self.archive_cache.batch_extract(items, workers=self.workers)
         self.stats['archives_extracted'] += ok
 
+        # Only index newly-extracted archives (skip already-indexed)
+        newly_extracted = {name for _, name in items}
         for h in archive_hashes:
             info = self.archive_by_hash.get(h)
-            if info:
+            if info and info['Name'] in newly_extracted:
                 self.archive_cache.index_archive(info['Name'])
 
     def _extract_nested_archive(self, archive_path, archive_name):
@@ -639,6 +644,11 @@ class ModlistInstaller:
         groups, inlines, patched, bsas = self._group_directives_by_archive()
         log.info(f"  {len(groups)} unique archives, {sum(len(v) for v in groups.values())} FromArchive")
         log.info(f"  {len(inlines)} inline, {len(patched)} patched, {len(bsas)} BSA")
+
+        # Release raw directive list (~2-4 GB for 651K directives) -- grouped data is sufficient
+        if hasattr(self.ml, '_modlist') and self.ml._modlist:
+            self.ml._modlist.pop('Directives', None)
+            import gc; gc.collect()
 
         log.info("\n=== Step 3: Extracting inline data ===")
         self.ml.extract_all_inline(self.inline_dir)
