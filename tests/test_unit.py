@@ -154,16 +154,16 @@ class TestInstallState:
         state = InstallState(tmp_path)
         assert state.phase == "init"
         assert len(state.completed_hashes) == 0
-        assert state.is_hash_done("AAA") is False
+        assert "AAA" not in state.completed_hashes
 
     def test_mark_hash_done(self, tmp_path):
         from wabbajack.state import InstallState
         state = InstallState(tmp_path)
         state.mark_hash_done("hash1")
         state.mark_hash_done("hash2")
-        assert state.is_hash_done("hash1")
-        assert state.is_hash_done("hash2")
-        assert not state.is_hash_done("hash3")
+        assert "hash1" in state.completed_hashes
+        assert "hash2" in state.completed_hashes
+        assert "hash3" not in state.completed_hashes
 
     def test_mark_hash_done_idempotent(self, tmp_path):
         from wabbajack.state import InstallState
@@ -185,8 +185,8 @@ class TestInstallState:
         # Reload
         state2 = InstallState(tmp_path)
         assert state2.phase == "placing"
-        assert state2.is_hash_done("H1")
-        assert state2.is_hash_done("H2")
+        assert "H1" in state2.completed_hashes
+        assert "H2" in state2.completed_hashes
         assert state2._data["placed_files"] == 100
         assert state2._data["failed_files"] == 5
 
@@ -209,7 +209,7 @@ class TestInstallState:
 
         state.reset()
         assert state.phase == "init"
-        assert not state.is_hash_done("X")
+        assert "X" not in state.completed_hashes
 
     def test_completed_hashes_caching(self, tmp_path):
         """completed_hashes property should return a set and be cached."""
@@ -883,3 +883,377 @@ class TestPlatform:
         for key, val in GAME_DIRS.items():
             assert "steam_subdir" in val
             assert "display" in val
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# loadorder.py: ESP Header Reader
+# ═══════════════════════════════════════════════════════════════════════
+
+import struct
+
+class TestReadPluginHeader:
+    """Test binary ESP/ESM/ESL header parsing."""
+
+    def _make_esp(self, tmp_path, filename, record_flags=0, masters=None):
+        subrecords = b""
+        for master in (masters or []):
+            name_bytes = master.encode("utf-8") + b"\x00"
+            subrecords += b"MAST" + struct.pack("<H", len(name_bytes)) + name_bytes
+            subrecords += b"DATA" + struct.pack("<H", 8) + b"\x00" * 8
+        data_size = len(subrecords)
+        header = b"TES4" + struct.pack("<I", data_size) + struct.pack("<I", record_flags) + b"\x00" * 8
+        path = tmp_path / filename
+        path.write_bytes(header + subrecords)
+        return path
+
+    def test_esm_by_extension(self, tmp_path):
+        from wabbajack.loadorder import read_plugin_header
+        entry = read_plugin_header(self._make_esp(tmp_path, "Skyrim.esm"))
+        assert entry.is_master is True
+        assert entry.is_light is False
+
+    def test_esl_by_extension(self, tmp_path):
+        from wabbajack.loadorder import read_plugin_header
+        entry = read_plugin_header(self._make_esp(tmp_path, "MyMod.esl"))
+        assert entry.is_light is True
+
+    def test_esm_flag_overrides_esp_extension(self, tmp_path):
+        from wabbajack.loadorder import read_plugin_header
+        entry = read_plugin_header(self._make_esp(tmp_path, "FakeMaster.esp", record_flags=0x01))
+        assert entry.is_master is True
+
+    def test_esl_flag_0x200(self, tmp_path):
+        from wabbajack.loadorder import read_plugin_header
+        entry = read_plugin_header(self._make_esp(tmp_path, "Light.esp", record_flags=0x200))
+        assert entry.is_light is True
+
+    def test_combined_flags(self, tmp_path):
+        from wabbajack.loadorder import read_plugin_header
+        entry = read_plugin_header(self._make_esp(tmp_path, "Both.esp", record_flags=0x201))
+        assert entry.is_master is True
+        assert entry.is_light is True
+
+    def test_masters_parsed(self, tmp_path):
+        from wabbajack.loadorder import read_plugin_header
+        entry = read_plugin_header(self._make_esp(tmp_path, "Dep.esp", masters=["Skyrim.esm", "Update.esm"]))
+        assert entry.masters == ["Skyrim.esm", "Update.esm"]
+
+    def test_non_tes4_signature(self, tmp_path):
+        from wabbajack.loadorder import read_plugin_header
+        p = tmp_path / "bad.esp"
+        p.write_bytes(b"XXXX" + b"\x00" * 20)
+        entry = read_plugin_header(p)
+        assert entry.filename == "bad.esp"
+        assert entry.masters == []
+
+    def test_truncated_file(self, tmp_path):
+        from wabbajack.loadorder import read_plugin_header
+        p = tmp_path / "trunc.esp"
+        p.write_bytes(b"TES4\x10\x00")
+        entry = read_plugin_header(p)
+        assert entry.filename == "trunc.esp"
+
+    def test_empty_file(self, tmp_path):
+        from wabbajack.loadorder import read_plugin_header
+        p = tmp_path / "empty.esp"
+        p.write_bytes(b"")
+        entry = read_plugin_header(p)
+        assert entry.filename == "empty.esp"
+
+    def test_no_masters(self, tmp_path):
+        from wabbajack.loadorder import read_plugin_header
+        entry = read_plugin_header(self._make_esp(tmp_path, "standalone.esp", masters=[]))
+        assert entry.masters == []
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# loadorder.py: BG3 Load Order
+# ═══════════════════════════════════════════════════════════════════════
+
+import xml.etree.ElementTree as ET
+
+def _make_modsettings(tmp_path, mods):
+    root_xml = ET.Element('save')
+    region = ET.SubElement(root_xml, 'region', id='ModuleSettings')
+    root_node = ET.SubElement(region, 'node', id='root')
+    children = ET.SubElement(root_node, 'children')
+    mod_order = ET.SubElement(children, 'node', id='ModOrder')
+    mo_children = ET.SubElement(mod_order, 'children')
+    for m in mods:
+        n = ET.SubElement(mo_children, 'node', id='Module')
+        ET.SubElement(n, 'attribute', id='UUID', type='FixedString', value=m['uuid'])
+    mods_node = ET.SubElement(children, 'node', id='Mods')
+    mods_children = ET.SubElement(mods_node, 'children')
+    for m in mods:
+        mn = ET.SubElement(mods_children, 'node', id='ModuleShortDesc')
+        ET.SubElement(mn, 'attribute', id='UUID', type='FixedString', value=m['uuid'])
+        ET.SubElement(mn, 'attribute', id='Name', type='LSString', value=m['name'])
+    path = tmp_path / 'modsettings.lsx'
+    ET.ElementTree(root_xml).write(str(path), encoding='utf-8', xml_declaration=True)
+    return path
+
+class TestBG3LoadOrder:
+
+    def test_load_resolves_names(self, tmp_path):
+        from wabbajack.loadorder import BG3LoadOrder
+        _make_modsettings(tmp_path, [
+            {"uuid": "aaaa-1111", "name": "MyMod"},
+            {"uuid": "bbbb-2222", "name": "AnotherMod"},
+        ])
+        lo = BG3LoadOrder(tmp_path, profile_dir=tmp_path)
+        lo.load()
+        assert len(lo.mods) == 2
+        assert lo.mods[0].name == "MyMod"
+        assert lo.mods[0].uid == "aaaa-1111"
+        assert lo.mods[1].uid == "bbbb-2222"
+
+    def test_load_empty_xml(self, tmp_path):
+        from wabbajack.loadorder import BG3LoadOrder
+        (tmp_path / 'modsettings.lsx').write_text('<save></save>', encoding='utf-8')
+        lo = BG3LoadOrder(tmp_path, profile_dir=tmp_path)
+        lo.load()
+        assert lo.mods == []
+
+    def test_load_malformed_xml(self, tmp_path):
+        from wabbajack.loadorder import BG3LoadOrder
+        (tmp_path / 'modsettings.lsx').write_text('<save><unclosed>', encoding='utf-8')
+        lo = BG3LoadOrder(tmp_path, profile_dir=tmp_path)
+        lo.load()
+        assert lo.mods == []
+
+    def test_load_missing_file(self, tmp_path):
+        from wabbajack.loadorder import BG3LoadOrder
+        lo = BG3LoadOrder(tmp_path, profile_dir=tmp_path)
+        lo.load()
+        assert lo.mods == []
+
+    def test_save_roundtrip(self, tmp_path):
+        from wabbajack.loadorder import BG3LoadOrder, ModEntry
+        lo = BG3LoadOrder(tmp_path, profile_dir=tmp_path)
+        lo.mods = [
+            ModEntry("Mod A", enabled=True, priority=0, uid="aaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+            ModEntry("Mod B", enabled=True, priority=1, uid="bbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+        ]
+        lo.save()
+        lo2 = BG3LoadOrder(tmp_path, profile_dir=tmp_path)
+        lo2.load()
+        uids = [m.uid for m in lo2.mods]
+        assert "aaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" in uids
+        assert "bbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" in uids
+
+    def test_get_attr_missing(self):
+        from wabbajack.loadorder import BG3LoadOrder
+        node = ET.Element('node')
+        assert BG3LoadOrder._get_attr(node, 'UUID') == ''
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# loadorder.py: Bethesda Load Order Logic
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestBethesdaLoadOrder:
+
+    def _make_lo(self, tmp_path):
+        from wabbajack.loadorder import BethesdaLoadOrder
+        return BethesdaLoadOrder(tmp_path, profile_dir=tmp_path)
+
+    def test_validate_detects_missing_master(self, tmp_path):
+        from wabbajack.loadorder import PluginEntry
+        lo = self._make_lo(tmp_path)
+        lo.plugins = [
+            PluginEntry("Skyrim.esm", enabled=True, is_master=True),
+            PluginEntry("MyMod.esp", enabled=True, masters=["Skyrim.esm", "MissingMaster.esm"]),
+        ]
+        errors = lo.validate_load_order()
+        assert len(errors) == 1
+        assert "MissingMaster.esm" in errors[0]
+
+    def test_validate_no_errors_when_complete(self, tmp_path):
+        from wabbajack.loadorder import PluginEntry
+        lo = self._make_lo(tmp_path)
+        lo.plugins = [
+            PluginEntry("Skyrim.esm", enabled=True, is_master=True),
+            PluginEntry("Update.esm", enabled=True, is_master=True),
+            PluginEntry("MyMod.esp", enabled=True, masters=["Skyrim.esm", "Update.esm"]),
+        ]
+        assert lo.validate_load_order() == []
+
+    def test_validate_ignores_disabled(self, tmp_path):
+        from wabbajack.loadorder import PluginEntry
+        lo = self._make_lo(tmp_path)
+        lo.plugins = [PluginEntry("Off.esp", enabled=False, masters=["Ghost.esm"])]
+        assert lo.validate_load_order() == []
+
+    def test_move_mod_to_front(self, tmp_path):
+        from wabbajack.loadorder import ModEntry
+        lo = self._make_lo(tmp_path)
+        lo.mods = [ModEntry("A", priority=0), ModEntry("B", priority=1), ModEntry("C", priority=2)]
+        assert lo.move_mod("C", 0) is True
+        assert lo.mods[0].name == "C"
+
+    def test_move_mod_to_end(self, tmp_path):
+        from wabbajack.loadorder import ModEntry
+        lo = self._make_lo(tmp_path)
+        lo.mods = [ModEntry("A", priority=0), ModEntry("B", priority=1), ModEntry("C", priority=2)]
+        assert lo.move_mod("A", 999) is True
+        assert lo.mods[-1].name == "A"
+
+    def test_move_nonexistent(self, tmp_path):
+        from wabbajack.loadorder import ModEntry
+        lo = self._make_lo(tmp_path)
+        lo.mods = [ModEntry("A")]
+        assert lo.move_mod("DoesNotExist", 0) is False
+
+    def test_priorities_renumbered(self, tmp_path):
+        from wabbajack.loadorder import ModEntry
+        lo = self._make_lo(tmp_path)
+        lo.mods = [ModEntry("A", priority=0), ModEntry("B", priority=1), ModEntry("C", priority=2)]
+        lo.move_mod("B", 0)
+        for i, m in enumerate(lo.mods):
+            assert m.priority == i
+
+    def test_load_modlist_txt(self, tmp_path):
+        lo = self._make_lo(tmp_path)
+        (tmp_path / 'modlist.txt').write_text("# comment\n+Enabled Mod\n-Disabled Mod\n*Unmanaged\n")
+        lo._load_modlist()
+        assert lo.mods[0].name == "Enabled Mod" and lo.mods[0].enabled is True
+        assert lo.mods[1].name == "Disabled Mod" and lo.mods[1].enabled is False
+        assert lo.mods[2].name == "Unmanaged" and lo.mods[2].enabled is True
+
+    def test_load_plugins_txt(self, tmp_path):
+        lo = self._make_lo(tmp_path)
+        (tmp_path / 'plugins.txt').write_text("# comment\n*Skyrim.esm\n*MyMod.esp\nDisabled.esp\n")
+        lo._load_plugins()
+        assert lo.plugins[0].filename == "Skyrim.esm" and lo.plugins[0].enabled is True
+        assert lo.plugins[1].filename == "MyMod.esp" and lo.plugins[1].enabled is True
+        assert lo.plugins[2].filename == "Disabled.esp" and lo.plugins[2].enabled is False
+
+    def test_save_roundtrip(self, tmp_path):
+        from wabbajack.loadorder import ModEntry, PluginEntry
+        lo = self._make_lo(tmp_path)
+        lo.mods = [ModEntry("Mod1", enabled=True), ModEntry("Mod2", enabled=False)]
+        lo.plugins = [PluginEntry("Skyrim.esm", enabled=True), PluginEntry("Off.esp", enabled=False)]
+        lo.save()
+        lo2 = self._make_lo(tmp_path)
+        lo2.load()
+        assert lo2.mods[0].name == "Mod1" and lo2.mods[0].enabled is True
+        assert lo2.mods[1].name == "Mod2" and lo2.mods[1].enabled is False
+        assert lo2.plugins[0].filename == "Skyrim.esm" and lo2.plugins[0].enabled is True
+        assert lo2.plugins[1].filename == "Off.esp" and lo2.plugins[1].enabled is False
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# web/auth.py: Nexus Auth State
+# ═══════════════════════════════════════════════════════════════════════
+
+from unittest.mock import patch, MagicMock
+
+class TestNexusAuthState:
+
+    def setup_method(self):
+        import wabbajack.web.auth as auth_module
+        auth_module._nexus_token = None
+        auth_module._nexus_username = None
+        auth_module._nexus_premium = None
+
+    def test_initial_status_not_logged_in(self):
+        from wabbajack.web.auth import get_nexus_status
+        status = get_nexus_status()
+        assert status["logged_in"] is False
+
+    def test_logout_clears_state(self):
+        import wabbajack.web.auth as auth
+        auth._nexus_token = "sometoken"
+        auth._nexus_username = "paul"
+        auth._nexus_premium = True
+        auth.logout()
+        assert auth._nexus_token is None
+        assert auth._nexus_username is None
+
+    def test_status_reflects_state(self):
+        import wabbajack.web.auth as auth
+        from wabbajack.web.auth import get_nexus_status
+        auth._nexus_token = "tok"
+        auth._nexus_username = "user1"
+        auth._nexus_premium = True
+        status = get_nexus_status()
+        assert status["logged_in"] is True
+        assert status["username"] == "user1"
+        assert status["premium"] is True
+
+    def test_set_token_success(self):
+        from wabbajack.web.auth import set_nexus_token
+        import wabbajack.web.auth as auth
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"name": "pauluser", "is_premium": True}
+        with patch("requests.get", return_value=mock_resp):
+            set_nexus_token("validtoken12345")
+        assert auth._nexus_token == "validtoken12345"
+        assert auth._nexus_username == "pauluser"
+
+    def test_set_token_failed_validation(self):
+        from wabbajack.web.auth import set_nexus_token
+        import wabbajack.web.auth as auth
+        mock_resp = MagicMock()
+        mock_resp.status_code = 401
+        with patch("requests.get", return_value=mock_resp):
+            set_nexus_token("badtoken")
+        assert auth._nexus_token is None
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# updater.py: Update Logic
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestUpdaterLogic:
+
+    def test_apply_update_no_op_when_up_to_date(self):
+        from wabbajack.updater import apply_update
+        result = apply_update({"update_available": False, "install_type": "pip"})
+        assert result["success"] is False
+        assert "up to date" in result["message"].lower()
+
+    def test_apply_update_binary_no_url(self):
+        from wabbajack.updater import apply_update
+        result = apply_update({"update_available": True, "install_type": "binary", "download_url": None})
+        assert result["success"] is False
+
+    def test_apply_update_unknown_type(self):
+        from wabbajack.updater import apply_update
+        result = apply_update({"update_available": True, "install_type": "alien"})
+        assert result["success"] is False
+
+    def test_get_install_type_binary_when_frozen(self):
+        from wabbajack import updater
+        with patch.object(updater, "_is_frozen", return_value=True):
+            assert updater.get_install_type() == "binary"
+
+    def test_get_install_type_dev_with_git(self, tmp_path):
+        from wabbajack import updater
+        (tmp_path / ".git").mkdir()
+        with patch.object(updater, "_find_git_root", return_value=tmp_path):
+            with patch.object(updater, "_is_frozen", return_value=False):
+                assert updater.get_install_type() == "dev"
+
+    def test_check_release_404_no_update(self):
+        from wabbajack.updater import _check_release_update
+        mock_resp = MagicMock()
+        mock_resp.status_code = 404
+        with patch("requests.get", return_value=mock_resp):
+            result = _check_release_update(timeout=5)
+        assert result["update_available"] is False
+
+    def test_update_dev_fails_no_git_root(self):
+        from wabbajack.updater import _update_dev
+        with patch("wabbajack.updater._find_git_root", return_value=None):
+            result = _update_dev()
+        assert result["success"] is False
+
+    def test_load_order_registry(self):
+        from wabbajack.loadorder import LOAD_ORDER_CLASSES
+        assert "SkyrimSpecialEdition" in LOAD_ORDER_CLASSES
+        assert "BaldursGate3" in LOAD_ORDER_CLASSES
+        assert "Cyberpunk2077" in LOAD_ORDER_CLASSES
+        assert "StardewValley" in LOAD_ORDER_CLASSES
+        assert len(LOAD_ORDER_CLASSES) == 9
