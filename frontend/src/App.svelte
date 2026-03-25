@@ -191,7 +191,7 @@
     font-size: 0.825rem;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: background 0.15s, color 0.15s;
     text-align: left;
     width: 100%;
   }

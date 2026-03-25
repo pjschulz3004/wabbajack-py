@@ -176,7 +176,7 @@
     background: transparent;
     color: var(--text-secondary);
     cursor: pointer;
-    transition: all 0.15s;
+    transition: opacity 0.15s, color 0.15s, border-color 0.15s;
     opacity: 0.5;
   }
 

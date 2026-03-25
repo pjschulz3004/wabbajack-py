@@ -208,16 +208,16 @@
       <table class="dl-table">
         <thead>
           <tr>
-            <th class="col-status" role="button" tabindex="0" onclick={() => toggleSort('status')} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleSort('status')}>
+            <th class="col-status" role="button" tabindex="0" aria-sort={sortKey === 'status' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} onclick={() => toggleSort('status')} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleSort('status')}>
               Status{sortIndicator('status')}
             </th>
-            <th class="col-name" role="button" tabindex="0" onclick={() => toggleSort('name')} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleSort('name')}>
+            <th class="col-name" role="button" tabindex="0" aria-sort={sortKey === 'name' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} onclick={() => toggleSort('name')} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleSort('name')}>
               Name{sortIndicator('name')}
             </th>
-            <th class="col-source" role="button" tabindex="0" onclick={() => toggleSort('source_type')} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleSort('source_type')}>
+            <th class="col-source" role="button" tabindex="0" aria-sort={sortKey === 'source_type' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} onclick={() => toggleSort('source_type')} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleSort('source_type')}>
               Source{sortIndicator('source_type')}
             </th>
-            <th class="col-size" role="button" tabindex="0" onclick={() => toggleSort('size')} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleSort('size')}>
+            <th class="col-size" role="button" tabindex="0" aria-sort={sortKey === 'size' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} onclick={() => toggleSort('size')} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleSort('size')}>
               Size{sortIndicator('size')}
             </th>
           </tr>
@@ -457,5 +457,10 @@
     font-size: 0.7rem;
     color: var(--text-secondary);
     flex-shrink: 0;
+  }
+
+  @media (max-width: 600px) {
+    .toolbar { flex-wrap: wrap; }
+    .search-wrap { max-width: 100%; }
   }
 </style>
