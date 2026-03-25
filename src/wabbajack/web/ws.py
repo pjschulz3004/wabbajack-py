@@ -23,7 +23,7 @@ class WebSocketLogHandler(logging.Handler):
         try:
             _message_queue.put_nowait(msg)
         except asyncio.QueueFull:
-            pass
+            pass  # Drop log messages when queue is full (backpressure)
 
 
 def install_log_handler():

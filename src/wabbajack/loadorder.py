@@ -417,7 +417,7 @@ class BG3LoadOrder(GameLoadOrder):
 
         # Build the LSX XML
         root = ET.Element('save')
-        version = ET.SubElement(root, 'version',
+        ET.SubElement(root, 'version',
                                 major='4', minor='7', revision='1', build='3')
         region = ET.SubElement(root, 'region', id='ModuleSettings')
         root_node = ET.SubElement(region, 'node', id='root')

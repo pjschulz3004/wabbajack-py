@@ -61,7 +61,7 @@ def logout():
         import keyring
         keyring.delete_password("wabbajack-py", "nexus_api_key")
     except Exception:
-        pass
+        pass  # keyring not available or no stored credential
 
 
 def load_saved_token():
@@ -76,7 +76,7 @@ def load_saved_token():
             set_nexus_token(token)
             return
     except Exception:
-        pass
+        pass  # keyring not available, fall through to env var
 
     # Fallback: check environment
     import os
@@ -91,7 +91,7 @@ def save_token(token: str):
         import keyring
         keyring.set_password("wabbajack-py", "nexus_api_key", token)
     except Exception:
-        pass
+        pass  # keyring not available, token still set in-memory
     set_nexus_token(token)
 
 
