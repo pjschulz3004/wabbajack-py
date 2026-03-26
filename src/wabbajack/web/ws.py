@@ -13,7 +13,7 @@ class WebSocketLogHandler(logging.Handler):
     """Intercepts log messages and forwards to all WebSocket clients."""
 
     def emit(self, record):
-        if _message_queue is None:
+        if _message_queue is None or not _clients:
             return
         msg = {
             "type": "log",

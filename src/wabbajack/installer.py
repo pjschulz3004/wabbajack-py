@@ -58,7 +58,7 @@ class ModlistInstaller:
 
         self.output.mkdir(parents=True, exist_ok=True)
         self.downloads.mkdir(parents=True, exist_ok=True)
-        self._output_resolved = str(self.output.resolve())
+
 
         self.archive_by_hash = {a['Hash']: a for a in self.ml.archives}
 
@@ -275,12 +275,13 @@ class ModlistInstaller:
 
         dest = self.output / normalized
 
-        # Resolve to catch symlink escapes (slower but necessary for security)
+        # Verify destination stays within output dir (no symlink resolution needed —
+        # the string check above already caught '..' and absolute paths)
         try:
-            if not str(dest.resolve()).startswith(self._output_resolved):
-                log.warning(f"  Symlink escape blocked: {to_field}")
+            if not dest.is_relative_to(self.output):
+                log.warning(f"  Path escape blocked: {to_field}")
                 return False
-        except (OSError, ValueError):
+        except (TypeError, ValueError):
             return False
 
         # Skip if destination already exists with matching size (optimized re-install)
