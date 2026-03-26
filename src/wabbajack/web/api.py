@@ -315,6 +315,84 @@ async def load_order_update(game_type: str, req: LoadOrderUpdate,
     return {"status": "saved", **lo.summary()}
 
 
+# ── Detected Installs ─────────────────────────────────────────────────
+
+@router.get("/installs")
+async def get_installs():
+    """Scan for existing modlist installs and .wabbajack files."""
+    from ..config import InstallConfig, CONFIG_FILE
+    from ..state import InstallState, STATE_FILE
+
+    home = Path.home()
+    games_dir = home / "Games"
+    downloads_base = games_dir / "WabbajackDownloads"
+    installs = []
+
+    # 1. Scan Games dir for output dirs with .wj-config.json
+    if games_dir.exists():
+        for d in sorted(games_dir.iterdir()):
+            if not d.is_dir() or d.name == "WabbajackDownloads":
+                continue
+            config_path = d / CONFIG_FILE
+            state_path = d / STATE_FILE
+            if config_path.exists() or state_path.exists():
+                config = InstallConfig(d) if config_path.exists() else None
+                state = InstallState(d) if state_path.exists() else None
+                cfg = config.summary() if config else {}
+                st = state.summary() if state else {}
+                installs.append({
+                    "name": cfg.get("modlist_name", d.name),
+                    "version": cfg.get("modlist_version", ""),
+                    "game": cfg.get("game_type", ""),
+                    "output_dir": str(d),
+                    "downloads_dir": cfg.get("downloads_dir", ""),
+                    "game_dir": cfg.get("game_dir", ""),
+                    "wabbajack_path": cfg.get("wabbajack_path", ""),
+                    "phase": st.get("phase", "unknown"),
+                    "completed_archives": st.get("completed_archives", 0),
+                    "placed_files": st.get("placed_files", 0),
+                    "failed_files": st.get("failed_files", 0),
+                    "started": st.get("started", ""),
+                    "updated": st.get("updated", ""),
+                    "source": "state_file",
+                })
+
+    # 2. Scan for .wabbajack files in common locations
+    wj_files = []
+    scan_dirs = [
+        home / "Jackify" / "downloaded_mod_lists",
+        home / "Downloads",
+        games_dir,
+    ]
+    for scan_dir in scan_dirs:
+        if scan_dir.exists():
+            for f in scan_dir.iterdir():
+                if f.is_file() and f.suffix.lower() in ('.wabbajack', '.bak') and f.stat().st_size > 1_000_000:
+                    already = any(i.get("wabbajack_path") == str(f) for i in installs)
+                    if not already:
+                        wj_files.append(str(f))
+
+    # 3. Per-game download stats
+    game_downloads = {}
+    if downloads_base.exists():
+        for gd in sorted(downloads_base.iterdir()):
+            if gd.is_dir():
+                count = 0
+                size = 0
+                for f in gd.iterdir():
+                    if f.is_file():
+                        count += 1
+                        size += f.stat().st_size
+                game_downloads[gd.name] = {"count": count, "size": size}
+
+    return {
+        "installs": installs,
+        "wabbajack_files": wj_files,
+        "downloads_base": str(downloads_base),
+        "game_downloads": game_downloads,
+    }
+
+
 # ── Updates ──────────────────────────────────────────────────────────
 
 @router.get("/update/check")

@@ -7,6 +7,44 @@
 
   let { modlist = null }: { modlist?: any } = $props();
 
+  // Detected installs
+  interface DetectedInstall {
+    name: string; version: string; game: string;
+    output_dir: string; downloads_dir: string; game_dir: string; wabbajack_path: string;
+    phase: string; completed_archives: number; placed_files: number; started: string;
+  }
+  let detectedInstalls = $state<DetectedInstall[]>([]);
+  let detectedWjFiles = $state<string[]>([]);
+  let gameDownloads = $state<Record<string, {count: number; size: number}>>({});
+
+  $effect(() => {
+    api.installs().then((data: any) => {
+      detectedInstalls = data.installs ?? [];
+      detectedWjFiles = data.wabbajack_files ?? [];
+      gameDownloads = data.game_downloads ?? {};
+    }).catch(() => {});
+  });
+
+  function loadDetectedInstall(inst: DetectedInstall) {
+    wabbajackPath = inst.wabbajack_path;
+    outputDir = inst.output_dir;
+    downloadsDir = inst.downloads_dir;
+    gameDir = inst.game_dir;
+    showForm = true;
+  }
+
+  function loadWjFile(path: string) {
+    wabbajackPath = path;
+    showForm = true;
+  }
+
+  function formatSize(bytes: number): string {
+    if (!bytes || bytes <= 0) return '0';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
+  }
+
   // Form state
   let wabbajackPath = $state('');
   let outputDir = $state('');
@@ -20,28 +58,29 @@
     if (!modlist) return;
     const game = modlist.game ?? '';
     const title = (modlist.title ?? 'modlist').replace(/[^a-zA-Z0-9_-]/g, '_');
-    const home = '/home/' + (typeof window !== 'undefined' ? 'paul' : 'user'); // will be overridden
+
+    // Fetch detected installs to find base paths
+    fetch('/api/installs').then(r => r.json()).then((data: any) => {
+      const base = data.downloads_base ?? '';
+      // Per-game downloads directory
+      if (!downloadsDir && game) downloadsDir = `${base}/${game}`;
+      if (!outputDir) outputDir = base.replace('/WabbajackDownloads', '') + `/${title}`;
+    }).catch(() => {});
 
     // Fetch actual games to find the game dir
     api.games().then((data: any) => {
       const games = data.games ?? data ?? [];
-      const match = games.find((g: any) => g.id?.toLowerCase() === game.toLowerCase() || g.name?.toLowerCase() === game.toLowerCase());
-      if (match?.path) gameDir = match.path;
-
-      // Set download dir from modlist download URL
-      if (modlist.links?.download) {
-        wabbajackPath = modlist.links.download;
-      }
+      const match = games.find((g: any) =>
+        g.id?.toLowerCase() === game.toLowerCase() ||
+        g.name?.toLowerCase() === game.toLowerCase()
+      );
+      if (match?.path && !gameDir) gameDir = match.path;
     }).catch(() => {});
 
-    // Fetch settings for base paths
-    api.settings().then((s: any) => {
-      if (!outputDir) outputDir = s.output_dir || `${home}/Games/${title}`;
-      if (!downloadsDir) downloadsDir = s.downloads_dir || `${home}/Games/WabbajackDownloads`;
-    }).catch(() => {
-      if (!outputDir) outputDir = `~/Games/${title}`;
-      if (!downloadsDir) downloadsDir = '~/Games/WabbajackDownloads';
-    });
+    // Set wabbajack path from modlist download URL
+    if (modlist.links?.download && !wabbajackPath) {
+      wabbajackPath = modlist.links.download;
+    }
   });
 
   // Auto-subscribed store values (no leak)
@@ -163,6 +202,58 @@
   <section class="log-section">
     <LogViewer logs={currentLogs} />
   </section>
+
+  <!-- Detected Installs -->
+  {#if !isRunning && !modlist && (detectedInstalls.length > 0 || detectedWjFiles.length > 0 || Object.keys(gameDownloads).length > 0)}
+    <section class="detected-section">
+      {#if detectedInstalls.length > 0}
+        <h3 class="section-title">Previous Installs</h3>
+        <div class="detected-list">
+          {#each detectedInstalls as inst}
+            <button class="detected-card" onclick={() => loadDetectedInstall(inst)}>
+              <div class="detected-info">
+                <span class="detected-name">{inst.name}</span>
+                <span class="detected-meta">{inst.game}{inst.version ? ` v${inst.version}` : ''}</span>
+              </div>
+              <div class="detected-status">
+                <span class="badge" class:badge-success={inst.phase === 'complete'} class:badge-warning={inst.phase !== 'complete' && inst.phase !== 'init'} class:badge-neutral={inst.phase === 'init' || inst.phase === 'unknown'}>
+                  {inst.phase}
+                </span>
+                {#if inst.completed_archives > 0}
+                  <span class="detected-stat">{inst.completed_archives} archives done</span>
+                {/if}
+              </div>
+            </button>
+          {/each}
+        </div>
+      {/if}
+
+      {#if detectedWjFiles.length > 0}
+        <h3 class="section-title">Modlist Files</h3>
+        <div class="detected-list">
+          {#each detectedWjFiles as path}
+            <button class="detected-card" onclick={() => loadWjFile(path)}>
+              <span class="detected-name">{path.split('/').pop()}</span>
+              <span class="detected-meta mono">{path}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+
+      {#if Object.keys(gameDownloads).length > 0}
+        <h3 class="section-title">Downloaded Archives</h3>
+        <div class="dl-stats">
+          {#each Object.entries(gameDownloads) as [game, stats]}
+            <div class="dl-stat">
+              <span class="dl-game">{game}</span>
+              <span class="dl-count">{stats.count.toLocaleString()} files</span>
+              <span class="dl-size">{formatSize(stats.size)}</span>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    </section>
+  {/if}
 
   <!-- Action Area -->
   <section class="action-section">
@@ -471,6 +562,104 @@
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     border-radius: var(--radius);
+  }
+
+  /* Detected installs */
+  .detected-section {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .detected-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+
+  .detected-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.625rem 0.875rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: border-color 0.15s;
+    text-align: left;
+    color: inherit;
+    font: inherit;
+    width: 100%;
+  }
+  .detected-card:hover { border-color: var(--accent); }
+
+  .detected-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+  }
+
+  .detected-name {
+    font-size: 0.825rem;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .detected-meta {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .detected-meta.mono { font-family: var(--font-mono); font-size: 0.65rem; }
+
+  .detected-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+  }
+
+  .detected-stat {
+    font-size: 0.7rem;
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+  }
+
+  .dl-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .dl-stat {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+
+  .dl-game {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .dl-count, .dl-size {
+    font-size: 0.7rem;
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
   }
 
   @media (max-width: 900px) {
