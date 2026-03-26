@@ -12,13 +12,13 @@
   let currentPage = $state<Page>('gallery');
   let selectedModlist = $state<any>(null);
   let sidebarOpen = $state(false);
-  let appVersion = $state('0.3.0');
+  let appVersion = $state('');
 
-  // Fetch actual version from server
+  // Fetch version from OpenAPI metadata (lightweight, no git operations)
   $effect(() => {
-    fetch('/api/update/check').then(r => r.json()).then(d => {
-      if (d.current) appVersion = d.current.split(' ')[0];
-    }).catch(() => {});
+    fetch('/openapi.json').then(r => r.json()).then(d => {
+      if (d.info?.version) appVersion = d.info.version;
+    }).catch(() => { appVersion = '?'; });
   });
 
   function openModDetail(modlist: any) {

@@ -516,7 +516,7 @@
       <div class="update-row">
         <div class="update-info">
           <span class="info-label">Current</span>
-          <span class="badge badge-accent">{updateInfo?.current ?? '0.3.0'}</span>
+          <span class="badge badge-accent">{updateInfo?.current ?? '...'}</span>
         </div>
         {#if updateInfo?.latest && updateInfo.latest !== updateInfo.current}
           <div class="update-info">
