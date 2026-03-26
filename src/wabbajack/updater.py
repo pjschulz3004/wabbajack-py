@@ -174,6 +174,11 @@ def _check_release_update(timeout: int) -> dict:
 
     try:
         from packaging.version import Version
+    except ImportError:
+        log.debug("packaging not installed; skipping version comparison")
+        return result
+
+    try:
         if Version(tag) > Version(CURRENT_VERSION):
             result['update_available'] = True
             system = platform.system().lower()
@@ -188,8 +193,9 @@ def _check_release_update(timeout: int) -> dict:
                 elif system == 'darwin' and ('macos' in name or 'darwin' in name):
                     result['download_url'] = asset['browser_download_url']
                     break
-    except Exception:
-        pass  # packaging not installed or version parse failed
+    except Exception as e:
+        log.warning(f"Version comparison failed (tag={tag!r}): {e}")
+        result['error'] = str(e)
 
     return result
 

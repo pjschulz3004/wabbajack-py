@@ -1,8 +1,13 @@
 """Modlist installer -- orchestrates downloads, extraction, and file placement."""
+from __future__ import annotations
 import re, time, shutil, logging, threading
 from pathlib import Path
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .modlist import WabbajackModlist
 
 from .finder import CaseInsensitiveFinder
 from .cache import ArchiveCache
@@ -39,8 +44,10 @@ PATH_MAGIC = {
 class ModlistInstaller:
     """Full modlist installer: download, extract, place."""
 
-    def __init__(self, modlist, output_dir, downloads_dir, game_dir,
-                 nexus_key=None, workers=12, cache_dir=None, verify_hashes=False):
+    def __init__(self, modlist: WabbajackModlist, output_dir: str | Path,
+                 downloads_dir: str | Path, game_dir: str | Path,
+                 nexus_key: str | None = None, workers: int = 12,
+                 cache_dir: str | Path | None = None, verify_hashes: bool = False) -> None:
         self.ml = modlist
         self.output = Path(output_dir)
         self.downloads = Path(downloads_dir)
@@ -102,7 +109,7 @@ class ModlistInstaller:
                 return True
         return False
 
-    def find_archive_path(self, archive_hash):
+    def find_archive_path(self, archive_hash: str) -> Path | None:
         info = self.archive_by_hash.get(archive_hash)
         if not info:
             return None
@@ -374,7 +381,7 @@ class ModlistInstaller:
             return
         log.warning(f"\n--- {len(archives)} manual downloads required ---")
         manual_file = self.downloads / 'manual-downloads.txt'
-        with open(manual_file, 'w') as f:
+        with manual_file.open('w', encoding='utf-8') as f:
             for a in archives:
                 url = a['State'].get('Url', a['State'].get('Prompt', ''))
                 log.warning(f"  MANUAL: {a['Name']}")
@@ -384,7 +391,7 @@ class ModlistInstaller:
         log.warning(f"  URLs saved to: {manual_file}")
         log.warning(f"  Download these files manually and place in: {self.downloads}")
 
-    def download_all(self, types=None, dry_run=False):
+    def download_all(self, types: list[str] | None = None, dry_run: bool = False) -> None:
         missing = [a for a in self.ml.archives if not self._is_archive_present(a)]
         if not missing:
             log.info(f"\nAll {len(self.ml.archives)} archives present!")
@@ -452,7 +459,7 @@ class ModlistInstaller:
         if self.failed_downloads:
             log.error(f"  Download errors: {len(self.failed_downloads)}")
             failed_file = self.downloads / 'failed-downloads.txt'
-            with open(failed_file, 'w') as f:
+            with failed_file.open('w', encoding='utf-8') as f:
                 for a in self.failed_downloads:
                     t = a['State'].get('$type', '?')
                     url = a['State'].get('Url', a['State'].get('Id', ''))
@@ -630,7 +637,7 @@ class ModlistInstaller:
         if label:
             log.debug(f"  {label}: {ok} placed, {fail} failed")
 
-    def install(self, skip_download=False, download_types=None, dry_run=False):
+    def install(self, skip_download: bool = False, download_types: list[str] | None = None, dry_run: bool = False) -> None:
         log.info(f"\n{'='*60}")
         log.info(f"Installing: {self.ml.name} {self.ml.version}")
         log.info(f"Output:     {self.output}")
