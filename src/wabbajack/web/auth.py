@@ -107,23 +107,26 @@ def load_saved_token():
 
 
 def save_token(token: str):
-    """Save token to file and keyring. File is the primary store."""
-    # File-based storage (always works on Linux)
+    """Validate token with Nexus API, then persist to file and keyring."""
+    # Validate FIRST — don't persist invalid tokens
+    set_nexus_token(token)
+    if _nexus_token is None:
+        log.warning("Token validation failed — not saving to disk")
+        return
+
+    # Only persist after successful validation
     try:
         _TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
         _TOKEN_FILE.write_text(json.dumps({"api_key": token}))
-        _TOKEN_FILE.chmod(0o600)  # Owner-only read
+        _TOKEN_FILE.chmod(0o600)
     except OSError as e:
         log.warning(f"Could not save token file: {e}")
 
-    # Also try keyring as secondary
     try:
         import keyring
         keyring.set_password("wabbajack-py", "nexus_api_key", token)
     except Exception:
         pass
-
-    set_nexus_token(token)
 
 
 async def initiate_sso():

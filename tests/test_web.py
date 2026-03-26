@@ -207,35 +207,35 @@ def test_install_start_path_traversal_rejected(client):
 
 def test_websocket_connect_accepted(client):
     """WebSocket connection to /ws is accepted."""
-    with client.websocket_connect("/ws") as ws:
+    with client.websocket_connect(f"/ws?token={SESSION_TOKEN}") as ws:
         # Connection was accepted if we get here without exception
         assert ws is not None
 
 
 def test_websocket_valid_command(client):
     """Sending a valid 'cancel' command does not crash."""
-    with client.websocket_connect("/ws") as ws:
+    with client.websocket_connect(f"/ws?token={SESSION_TOKEN}") as ws:
         ws.send_text(json.dumps({"type": "cancel"}))
         # No error means success -- the server silently processes it
 
 
 def test_websocket_invalid_command_type(client):
     """Sending an unknown command type does not crash the server."""
-    with client.websocket_connect("/ws") as ws:
+    with client.websocket_connect(f"/ws?token={SESSION_TOKEN}") as ws:
         ws.send_text(json.dumps({"type": "bogus_command"}))
         # Server should silently drop it, no crash
 
 
 def test_websocket_malformed_json(client):
     """Sending non-JSON text does not crash the server."""
-    with client.websocket_connect("/ws") as ws:
+    with client.websocket_connect(f"/ws?token={SESSION_TOKEN}") as ws:
         ws.send_text("this is not json {{{")
         # Server should silently drop it
 
 
 def test_websocket_oversized_message(client):
     """Sending an oversized message (>4096 bytes) is silently dropped."""
-    with client.websocket_connect("/ws") as ws:
+    with client.websocket_connect(f"/ws?token={SESSION_TOKEN}") as ws:
         huge = json.dumps({"type": "cancel", "padding": "x" * 5000})
         ws.send_text(huge)
         # Server should drop it, no crash

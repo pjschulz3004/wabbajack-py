@@ -74,8 +74,13 @@ def push_event(event_type, **kwargs):
 
 
 @router.websocket("/ws")
-async def websocket_endpoint(ws: WebSocket):
+async def websocket_endpoint(ws: WebSocket, token: str = ""):
     global _message_queue, _event_loop
+    # Require session token for WebSocket connections (prevents cross-origin hijacking)
+    from . import SESSION_TOKEN
+    if token != SESSION_TOKEN:
+        await ws.close(code=4401)
+        return
     await ws.accept()
     _clients.add(ws)
 
