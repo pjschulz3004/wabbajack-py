@@ -1,5 +1,5 @@
 """Self-update logic for wabbajack-py."""
-import logging, os, platform, shutil, subprocess, sys, tempfile
+import logging, os, platform, re, shutil, subprocess, sys, tempfile
 from pathlib import Path
 
 from . import __version__
@@ -10,6 +10,17 @@ GITHUB_REPO = "pjschulz3004/wabbajack-py"
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 GITHUB_API_COMMITS = f"https://api.github.com/repos/{GITHUB_REPO}/commits/main"
 CURRENT_VERSION = __version__
+
+# Strict pattern for git refspecs: alphanumeric, dots, slashes, hyphens, underscores
+_SAFE_REFSPEC = re.compile(r'^[A-Za-z0-9._/\-]{1,200}$')
+
+
+def _sanitize_upstream(upstream: str) -> str:
+    """Validate and sanitize a git upstream refspec. Falls back to origin/master."""
+    upstream = upstream.strip()
+    if not upstream or not _SAFE_REFSPEC.match(upstream) or upstream.startswith('-'):
+        return 'origin/master'
+    return upstream
 
 
 def _is_frozen() -> bool:
@@ -87,22 +98,20 @@ def _check_dev_update(timeout: int) -> dict:
             ['git', 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'],
             capture_output=True, text=True, timeout=5, cwd=git_root,
         )
-        upstream = tracking.stdout.strip() if tracking.returncode == 0 else 'origin/master'
+        upstream = _sanitize_upstream(
+            tracking.stdout if tracking.returncode == 0 else 'origin/master'
+        )
 
         # Fetch remote (use -- to prevent argument injection)
         remote = upstream.split('/')[0] if '/' in upstream else 'origin'
-        if remote.startswith('-'):
-            remote = 'origin'
         subprocess.run(
             ['git', 'fetch', '--', remote],
             capture_output=True, timeout=timeout, cwd=git_root,
         )
 
         # Compare local vs remote
-        if upstream.startswith('-'):
-            upstream = 'origin/master'
         behind = subprocess.run(
-            ['git', 'rev-list', '--count', f'HEAD..{upstream}'],
+            ['git', 'rev-list', '--count', '--', f'HEAD..{upstream}'],
             capture_output=True, text=True, timeout=5, cwd=git_root,
         )
         behind_count = int(behind.stdout.strip()) if behind.returncode == 0 else 0
@@ -114,7 +123,7 @@ def _check_dev_update(timeout: int) -> dict:
             result['latest'] = f'{behind_count} new commits'
             # Get commit log for changelog
             changelog = subprocess.run(
-                ['git', 'log', '--oneline', f'HEAD..{upstream}', '--max-count=20'],
+                ['git', 'log', '--oneline', '--max-count=20', '--', f'HEAD..{upstream}'],
                 capture_output=True, text=True, timeout=5, cwd=git_root,
             )
             result['changelog'] = changelog.stdout.strip()
@@ -226,10 +235,10 @@ def _update_dev(progress_fn=None) -> dict:
             ['git', 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'],
             capture_output=True, text=True, timeout=5, cwd=git_root,
         )
-        upstream = tracking.stdout.strip() if tracking.returncode == 0 else 'origin/master'
+        upstream = _sanitize_upstream(
+            tracking.stdout if tracking.returncode == 0 else 'origin/master'
+        )
         remote = upstream.split('/')[0] if '/' in upstream else 'origin'
-        if remote.startswith('-'):
-            remote = 'origin'
 
         subprocess.run(
             ['git', 'fetch', '--', remote],

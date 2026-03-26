@@ -37,9 +37,18 @@ def create_app():
                 return JSONResponse(status_code=403, content={"detail": "Invalid session token"})
         return await call_next(request)
 
-    # Provide the session token on a GET endpoint (only accessible from localhost)
+    # Provide session token — only to same-origin requests (blocks DNS rebinding/CSRF)
     @app.get("/api/session")
-    async def get_session():
+    async def get_session(request: Request):
+        origin = request.headers.get("origin", "")
+        referer = request.headers.get("referer", "")
+        # Allow: no origin (same-origin fetch), or explicit localhost origins
+        allowed = {"http://localhost:5173", "http://127.0.0.1:5173",
+                    "http://localhost:6969", "http://127.0.0.1:6969"}
+        if origin and origin not in allowed:
+            return JSONResponse(status_code=403, content={"detail": "Forbidden"})
+        if referer and not any(referer.startswith(a) for a in allowed):
+            return JSONResponse(status_code=403, content={"detail": "Forbidden"})
         return {"token": SESSION_TOKEN}
 
     from .api import router as api_router

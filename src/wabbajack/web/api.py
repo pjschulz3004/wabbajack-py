@@ -48,6 +48,24 @@ class SettingsUpdate(BaseModel):
     workers: Optional[int] = None
     verify_hashes: Optional[bool] = None
 
+    @field_validator('output_dir', 'downloads_dir', 'game_dir')
+    @classmethod
+    def validate_paths(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if '\x00' in v:
+            raise ValueError("Null bytes not allowed in paths")
+        if '..' in Path(v).parts:
+            raise ValueError("Path traversal not allowed")
+        return v
+
+    @field_validator('workers')
+    @classmethod
+    def validate_workers(cls, v: int | None) -> int | None:
+        if v is not None and (v < 1 or v > 64):
+            raise ValueError("Workers must be between 1 and 64")
+        return v
+
 
 # ── Gallery ──────────────────────────────────────────────────────────
 
