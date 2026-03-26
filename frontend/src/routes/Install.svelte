@@ -53,44 +53,45 @@
   let workers = $state(4);
   let showForm = $state(true);
 
-  // Set smart defaults when modlist changes
-  $effect(() => {
+  // Set smart defaults when modlist is provided
+  async function loadDefaults() {
     if (!modlist) return;
     const game = modlist.game ?? '';
     const title = (modlist.title ?? 'modlist').replace(/[^a-zA-Z0-9_-]/g, '_');
 
-    // Fetch detected installs to find local .wabbajack file and base paths
-    fetch('/api/installs').then(r => r.json()).then((data: any) => {
-      const base = data.downloads_base ?? '';
-      if (!downloadsDir && game) downloadsDir = `${base}/${game}`;
-      if (!outputDir) outputDir = base.replace('/WabbajackDownloads', '') + `/${title}`;
+    try {
+      const data = await fetch('/api/installs').then(r => r.json());
+      const base: string = data.downloads_base ?? '';
 
-      // Try to find a local .wabbajack file matching this modlist
-      if (!wabbajackPath) {
-        const wjFiles: string[] = data.wabbajack_files ?? [];
-        const titleLower = (modlist.title ?? '').toLowerCase().replace(/\s+/g, '');
-        const match = wjFiles.find((f: string) => {
-          const fname = f.split('/').pop()?.toLowerCase().replace(/\s+/g, '') ?? '';
-          return fname.includes(titleLower) || titleLower.includes(fname.replace(/\.wabbajack.*/, ''));
-        });
-        if (match) {
-          wabbajackPath = match;
-        } else if (modlist.links?.download) {
-          // Fallback: use download URL (server will need to download it first)
-          wabbajackPath = modlist.links.download;
-        }
-      }
-    }).catch(() => {});
+      // Per-game downloads directory
+      if (game) downloadsDir = `${base}/${game}`;
+      outputDir = base.replace('/WabbajackDownloads', '') + `/${title}`;
 
-    // Fetch actual games to find the game dir
-    api.games().then((data: any) => {
+      // Find local .wabbajack file matching this modlist
+      const wjFiles: string[] = data.wabbajack_files ?? [];
+      const titleLower = (modlist.title ?? '').toLowerCase().replace(/\s+/g, '');
+      const match = wjFiles.find((f: string) => {
+        const fname = f.split('/').pop()?.toLowerCase().replace(/\s+/g, '') ?? '';
+        return fname.includes(titleLower);
+      });
+      wabbajackPath = match ?? modlist.links?.download ?? '';
+    } catch {}
+
+    try {
+      const data = await api.games();
       const games = data.games ?? data ?? [];
+      const game_lower = (modlist.game ?? '').toLowerCase();
       const match = games.find((g: any) =>
-        g.id?.toLowerCase() === game.toLowerCase() ||
-        g.name?.toLowerCase() === game.toLowerCase()
+        g.id?.toLowerCase() === game_lower || g.name?.toLowerCase() === game_lower
       );
-      if (match?.path && !gameDir) gameDir = match.path;
-    }).catch(() => {});
+      if (match?.path) gameDir = match.path;
+    } catch {}
+  }
+
+  $effect(() => {
+    // Track modlist reactively, then call async function
+    const ml = modlist;
+    if (ml) loadDefaults();
   });
 
   // Auto-subscribed store values (no leak)
