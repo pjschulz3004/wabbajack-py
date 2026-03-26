@@ -288,10 +288,6 @@
 </script>
 
 <div class="settings-page">
-  <header class="page-header">
-    <h2>Settings</h2>
-  </header>
-
   {#if settingsError}
     <div class="error-banner" role="alert">
       <span>{settingsError}</span>
@@ -610,16 +606,6 @@
     padding: 1.5rem;
     max-width: 800px;
     margin: 0 auto;
-  }
-
-  .page-header {
-    margin-bottom: 1.5rem;
-  }
-
-  .page-header h2 {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: var(--text-primary);
   }
 
   .error-banner {

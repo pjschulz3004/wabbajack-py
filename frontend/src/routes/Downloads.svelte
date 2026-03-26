@@ -146,7 +146,6 @@
 
 <div class="downloads-page">
   <div class="page-header">
-    <h2 class="page-title">Downloads</h2>
     <div class="stat-badges">
       <span class="badge badge-accent">{counts.total} total</span>
       {#if counts.done > 0}

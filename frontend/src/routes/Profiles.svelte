@@ -69,7 +69,6 @@
 <div class="profiles-page">
   <header class="page-header">
     <div class="header-text">
-      <h2>Profiles</h2>
       {#if data?.shared_downloads}
         <p class="shared-path">
           <span class="label">Shared downloads:</span>
@@ -183,11 +182,6 @@
     flex-wrap: wrap;
   }
 
-  .page-header h2 {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: var(--text-primary);
-  }
 
   .shared-path {
     margin-top: 0.375rem;
