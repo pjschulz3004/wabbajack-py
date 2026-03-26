@@ -602,19 +602,6 @@ class ModlistInstaller:
         if not all_pairs:
             return
 
-        # Pre-create parent directories in bulk (with path traversal check)
-        dirs = set()
-        for _, to_field in all_pairs:
-            dest = self.output / to_field.replace('\\', '/')
-            try:
-                resolved = str(dest.resolve())
-                if resolved.startswith(self._output_resolved):
-                    dirs.add(dest.parent)
-            except (OSError, ValueError):
-                pass
-        for d in dirs:
-            d.mkdir(parents=True, exist_ok=True)
-
         ok = 0
         fail = 0
         placement_workers = min(self.workers, len(all_pairs))

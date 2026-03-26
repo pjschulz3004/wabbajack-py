@@ -13,6 +13,15 @@ _install_thread: Optional[threading.Thread] = None
 _sso_task: Optional[asyncio.Task] = None
 
 
+def _check_path(v: str) -> str:
+    """Reject path traversal attempts and null bytes."""
+    if '\x00' in v:
+        raise ValueError("Null bytes not allowed in paths")
+    if '..' in Path(v).parts:
+        raise ValueError("Path traversal not allowed")
+    return v
+
+
 class InstallRequest(BaseModel):
     wabbajack_path: str
     output_dir: str
@@ -26,12 +35,7 @@ class InstallRequest(BaseModel):
     @field_validator('wabbajack_path', 'output_dir', 'downloads_dir', 'game_dir')
     @classmethod
     def validate_paths(cls, v: str) -> str:
-        """Reject path traversal attempts and null bytes."""
-        if '\x00' in v:
-            raise ValueError("Null bytes not allowed in paths")
-        if '..' in Path(v).parts:
-            raise ValueError("Path traversal not allowed")
-        return v
+        return _check_path(v)
 
     @field_validator('workers')
     @classmethod
@@ -51,13 +55,7 @@ class SettingsUpdate(BaseModel):
     @field_validator('output_dir', 'downloads_dir', 'game_dir')
     @classmethod
     def validate_paths(cls, v: str | None) -> str | None:
-        if v is None:
-            return v
-        if '\x00' in v:
-            raise ValueError("Null bytes not allowed in paths")
-        if '..' in Path(v).parts:
-            raise ValueError("Path traversal not allowed")
-        return v
+        return _check_path(v) if v is not None else v
 
     @field_validator('workers')
     @classmethod
@@ -155,9 +153,11 @@ async def switch_profile(name: str):
 async def open_modlist(wabbajack_path: str):
     from ..modlist import WabbajackModlist
     # Validate: must be a .wabbajack file, no traversal, must exist
-    p = Path(wabbajack_path)
-    if '\x00' in wabbajack_path or '..' in p.parts:
+    try:
+        _check_path(wabbajack_path)
+    except ValueError:
         raise HTTPException(400, "Invalid path")
+    p = Path(wabbajack_path)
     if not p.suffix.lower() in ('.wabbajack', '.bak'):
         raise HTTPException(400, "Not a .wabbajack file")
     if not p.exists():
@@ -277,10 +277,12 @@ async def load_order_get(game_type: str, game_dir: str = '', profile: str = ''):
     if game_type == 'supported':
         return {"games": list(LOAD_ORDER_CLASSES.keys())}
 
-    # Validate paths against traversal
-    for p in (game_dir, profile):
-        if p and ('\x00' in p or '..' in Path(p).parts):
-            raise HTTPException(400, "Invalid path")
+    try:
+        for p in (game_dir, profile):
+            if p:
+                _check_path(p)
+    except ValueError:
+        raise HTTPException(400, "Invalid path")
 
     gd = game_dir or detect_game_dir(game_type)
     if not gd:
@@ -322,9 +324,12 @@ async def load_order_update(game_type: str, req: LoadOrderUpdate,
     from ..loadorder import get_load_order, ModEntry, PluginEntry
     from ..platform import detect_game_dir
 
-    for p in (game_dir, profile):
-        if p and ('\x00' in p or '..' in Path(p).parts):
-            raise HTTPException(400, "Invalid path")
+    try:
+        for p in (game_dir, profile):
+            if p:
+                _check_path(p)
+    except ValueError:
+        raise HTTPException(400, "Invalid path")
 
     gd = game_dir or detect_game_dir(game_type)
     if not gd:

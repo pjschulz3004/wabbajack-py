@@ -5,19 +5,11 @@ log = logging.getLogger(__name__)
 
 try:
     from rich.console import Console
-    from rich.progress import Progress, BarColumn, DownloadColumn, TransferSpeedColumn, TimeRemainingColumn, TextColumn, SpinnerColumn
     from rich.table import Table
     from rich.panel import Panel
-    from rich import print as rprint
     HAS_RICH = True
 except ImportError:
     HAS_RICH = False
-
-
-def get_console():
-    if HAS_RICH:
-        return Console()
-    return None
 
 
 def print_modlist_info(summary):
@@ -57,26 +49,6 @@ def print_modlist_info(summary):
         for t, c in sorted(summary['archive_types'].items(), key=lambda x: -x[1]):
             at.add_row(t, str(c))
         console.print(at)
-
-
-def print_download_summary(present, total, missing_groups, total_size):
-    """Print download summary with rich formatting."""
-    if not HAS_RICH:
-        return  # Caller uses log.info fallback
-
-    console = Console()
-    table = Table(title="Download Summary", border_style="green")
-    table.add_column("Source", style="cyan")
-    table.add_column("Files", justify="right", style="white")
-    table.add_column("Size", justify="right", style="yellow")
-    for g in ['game', 'http', 'mediafire', 'mega', 'gdrive', 'moddb', 'nexus', 'manual']:
-        if g in missing_groups:
-            items = missing_groups[g]
-            size = sum(a.get('Size', 0) for a in items) / 1073741824
-            table.add_row(g, str(len(items)), f"{size:.2f} GB")
-    console.print(table)
-    console.print(f"  [green]Present:[/green] {present}/{total}  "
-                  f"[yellow]Need:[/yellow] {total - present} (~{total_size/1073741824:.1f} GB)")
 
 
 def print_install_complete(stats, hash_mismatches=None):
