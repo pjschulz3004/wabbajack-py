@@ -1,5 +1,6 @@
 """Nexus Mods SSO authentication via WebSocket."""
 import uuid, json, logging, asyncio
+from pathlib import Path
 from typing import Optional
 
 log = logging.getLogger(__name__)
@@ -7,6 +8,9 @@ log = logging.getLogger(__name__)
 _nexus_token: Optional[str] = None
 _nexus_username: Optional[str] = None
 _nexus_premium: Optional[bool] = None
+
+# File-based token storage (keyring fallback — keyring often fails on Linux)
+_TOKEN_FILE = Path.home() / ".config" / "wabbajack-py" / "nexus_token.json"
 
 
 def get_nexus_status():
@@ -50,25 +54,42 @@ def set_nexus_token(token: str):
 
 
 def logout():
-    """Clear Nexus credentials."""
+    """Clear Nexus credentials from memory, file, and keyring."""
     global _nexus_token, _nexus_username, _nexus_premium
     _nexus_token = None
     _nexus_username = None
     _nexus_premium = None
 
-    # Try to clear from keyring
+    # Clear file
+    try:
+        _TOKEN_FILE.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+    # Clear keyring
     try:
         import keyring
         keyring.delete_password("wabbajack-py", "nexus_api_key")
     except Exception:
-        pass  # keyring not available or no stored credential
+        pass
 
 
 def load_saved_token():
-    """Try to load Nexus token from keyring or config."""
+    """Try to load Nexus token from file, keyring, or env var."""
     global _nexus_token
 
-    # Try keyring first
+    # Try file first (most reliable on Linux)
+    try:
+        if _TOKEN_FILE.exists():
+            data = json.loads(_TOKEN_FILE.read_text())
+            token = data.get("api_key")
+            if token:
+                set_nexus_token(token)
+                return
+    except (json.JSONDecodeError, OSError) as e:
+        log.debug(f"Could not load token file: {e}")
+
+    # Try keyring
     try:
         import keyring
         token = keyring.get_password("wabbajack-py", "nexus_api_key")
@@ -76,7 +97,7 @@ def load_saved_token():
             set_nexus_token(token)
             return
     except Exception:
-        pass  # keyring not available, fall through to env var
+        pass
 
     # Fallback: check environment
     import os
@@ -86,12 +107,22 @@ def load_saved_token():
 
 
 def save_token(token: str):
-    """Save token to keyring (or fallback)."""
+    """Save token to file and keyring. File is the primary store."""
+    # File-based storage (always works on Linux)
+    try:
+        _TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _TOKEN_FILE.write_text(json.dumps({"api_key": token}))
+        _TOKEN_FILE.chmod(0o600)  # Owner-only read
+    except OSError as e:
+        log.warning(f"Could not save token file: {e}")
+
+    # Also try keyring as secondary
     try:
         import keyring
         keyring.set_password("wabbajack-py", "nexus_api_key", token)
     except Exception:
-        pass  # keyring not available, token still set in-memory
+        pass
+
     set_nexus_token(token)
 
 
