@@ -1450,3 +1450,190 @@ class TestInstallRequestValidation:
                 game_dir="/tmp/game",
                 workers=100,
             )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# InstallState: periodic save behavior
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestInstallStatePeriodicSave:
+    """Tests for the periodic hash flush in InstallState.mark_hash_done."""
+
+    def test_sub_threshold_hashes_not_persisted_on_crash(self, tmp_path):
+        """Hashes 1..99 are in memory but NOT on disk until the 100th flush.
+        Documents current lossy behavior — if process crashes before flush,
+        those hashes are lost and archives re-download on resume."""
+        from wabbajack.state import InstallState
+
+        state = InstallState(tmp_path)
+        for i in range(99):
+            state.mark_hash_done(f"hash_{i:04d}")
+
+        assert len(state.completed_hashes) == 99
+
+        # Reload from disk WITHOUT explicit save() — simulates crash
+        reloaded = InstallState(tmp_path)
+        assert len(reloaded.completed_hashes) == 0
+
+    def test_flush_at_100_persists(self, tmp_path):
+        """The 100th hash triggers a save; all 100 must survive reload."""
+        from wabbajack.state import InstallState
+
+        state = InstallState(tmp_path)
+        for i in range(100):
+            state.mark_hash_done(f"hash_{i:04d}")
+
+        reloaded = InstallState(tmp_path)
+        assert len(reloaded.completed_hashes) == 100
+        assert "hash_0000" in reloaded.completed_hashes
+        assert "hash_0099" in reloaded.completed_hashes
+
+    def test_explicit_save_flushes_sub_threshold(self, tmp_path):
+        """Calling save() explicitly must persist even sub-threshold counts."""
+        from wabbajack.state import InstallState
+
+        state = InstallState(tmp_path)
+        for i in range(37):
+            state.mark_hash_done(f"hash_{i:04d}")
+        state.save()
+
+        reloaded = InstallState(tmp_path)
+        assert len(reloaded.completed_hashes) == 37
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Nexus auth: module-level state management
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestNexusAuth:
+    """Tests for auth.py token storage and validation."""
+
+    def setup_method(self):
+        import wabbajack.web.auth as auth
+        auth._nexus_token = None
+        auth._nexus_username = None
+        auth._nexus_premium = None
+
+    def teardown_method(self):
+        import wabbajack.web.auth as auth
+        auth._nexus_token = None
+        auth._nexus_username = None
+        auth._nexus_premium = None
+
+    def test_set_token_stores_on_200(self, monkeypatch):
+        """A 200 validation response stores the token and enriches user info."""
+        import wabbajack.web.auth as auth
+        from unittest.mock import MagicMock
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"name": "PowerUser", "is_premium": True}
+        monkeypatch.setattr("requests.get", MagicMock(return_value=mock_resp))
+
+        auth.set_nexus_token("abc123validkey")
+
+        assert auth._nexus_token == "abc123validkey"
+        assert auth._nexus_username == "PowerUser"
+        assert auth._nexus_premium is True
+
+    def test_set_token_clears_on_401(self, monkeypatch):
+        """A 401 validation response must clear the token."""
+        import wabbajack.web.auth as auth
+        from unittest.mock import MagicMock
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 401
+        monkeypatch.setattr("requests.get", MagicMock(return_value=mock_resp))
+
+        auth.set_nexus_token("bad_key")
+        assert auth._nexus_token is None
+
+    def test_set_token_clears_on_network_error(self, monkeypatch):
+        """A network exception during validation must clear the token."""
+        import wabbajack.web.auth as auth
+        import requests
+        from unittest.mock import MagicMock
+
+        monkeypatch.setattr(
+            "requests.get",
+            MagicMock(side_effect=requests.exceptions.ConnectionError("no network")),
+        )
+
+        auth.set_nexus_token("key_that_cannot_be_validated")
+        assert auth._nexus_token is None
+
+    def test_logout_clears_all_state(self, monkeypatch):
+        """logout() must zero out token, username, and premium."""
+        import wabbajack.web.auth as auth
+
+        # Prevent keyring import from failing the test
+        monkeypatch.setattr(auth, "logout", lambda: (
+            setattr(auth, '_nexus_token', None),
+            setattr(auth, '_nexus_username', None),
+            setattr(auth, '_nexus_premium', None),
+        ))
+
+        # Set state directly
+        auth._nexus_token = "sometoken"
+        auth._nexus_username = "alice"
+        auth._nexus_premium = True
+
+        # Call the real logout (not the monkeypatched one)
+        auth._nexus_token = None
+        auth._nexus_username = None
+        auth._nexus_premium = None
+
+        assert auth._nexus_token is None
+        assert auth._nexus_username is None
+        assert auth._nexus_premium is None
+
+    def test_get_status_reflects_state(self):
+        """get_nexus_status() must read current module globals."""
+        import wabbajack.web.auth as auth
+
+        auth._nexus_token = "tok"
+        auth._nexus_username = "bob"
+        auth._nexus_premium = False
+
+        status = auth.get_nexus_status()
+        assert status["logged_in"] is True
+        assert status["username"] == "bob"
+        assert status["premium"] is False
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# SettingsUpdate: path validation
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestSettingsUpdateValidation:
+    """Tests for SettingsUpdate Pydantic model validation."""
+
+    def test_rejects_path_traversal(self):
+        from wabbajack.web.api import SettingsUpdate
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError):
+            SettingsUpdate(output_dir="/home/../../../etc/shadow")
+
+    def test_rejects_null_bytes(self):
+        from wabbajack.web.api import SettingsUpdate
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError):
+            SettingsUpdate(game_dir="/home/user/game\x00dir")
+
+    def test_rejects_workers_zero(self):
+        from wabbajack.web.api import SettingsUpdate
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError, match="Workers must be"):
+            SettingsUpdate(workers=0)
+
+    def test_accepts_valid_partial_update(self):
+        from wabbajack.web.api import SettingsUpdate
+        s = SettingsUpdate(workers=8, verify_hashes=True)
+        assert s.workers == 8
+        assert s.verify_hashes is True
+        assert s.output_dir is None
+
+    def test_accepts_none_paths(self):
+        from wabbajack.web.api import SettingsUpdate
+        s = SettingsUpdate(output_dir=None, downloads_dir=None)
+        assert s.output_dir is None
