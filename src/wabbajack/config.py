@@ -1,14 +1,88 @@
-"""Per-modlist configuration file support.
+"""Configuration and XDG data directory support.
 
-Saves install settings so re-runs don't need all CLI args.
-Stored as JSON in the output directory.
+Per-modlist configs are stored in each output directory.
+Global settings and app data use XDG-compliant paths.
 """
-import json, logging
+import json, logging, os
 from pathlib import Path
 
 log = logging.getLogger(__name__)
 
 CONFIG_FILE = '.wj-config.json'
+
+# XDG Base Directories (https://specifications.freedesktop.org/basedir-spec)
+APP_NAME = 'wabbajack-py'
+
+
+def xdg_data_home() -> Path:
+    """~/.local/share/wabbajack-py/ (XDG_DATA_HOME)"""
+    base = Path(os.environ.get('XDG_DATA_HOME', Path.home() / '.local' / 'share'))
+    return base / APP_NAME
+
+
+def xdg_config_home() -> Path:
+    """~/.config/wabbajack-py/ (XDG_CONFIG_HOME)"""
+    base = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config'))
+    return base / APP_NAME
+
+
+def xdg_cache_home() -> Path:
+    """~/.cache/wabbajack-py/ (XDG_CACHE_HOME)"""
+    base = Path(os.environ.get('XDG_CACHE_HOME', Path.home() / '.cache'))
+    return base / APP_NAME
+
+
+def ensure_app_dirs() -> dict[str, Path]:
+    """Create the standard app directory structure. Returns paths dict."""
+    dirs = {
+        'data': xdg_data_home(),
+        'config': xdg_config_home(),
+        'cache': xdg_cache_home(),
+        'modlists': xdg_data_home() / 'modlists',
+        'profiles': xdg_data_home() / 'profiles',
+    }
+    for d in dirs.values():
+        d.mkdir(parents=True, exist_ok=True)
+    return dirs
+
+
+class GlobalSettings:
+    """App-wide settings stored in XDG config dir."""
+
+    DEFAULTS = {
+        'default_workers': 12,
+        'verify_hashes': False,
+    }
+
+    def __init__(self):
+        self.path = xdg_config_home() / 'settings.json'
+        self._data = self._load()
+
+    def _load(self) -> dict:
+        if self.path.exists():
+            try:
+                return {**self.DEFAULTS, **json.loads(self.path.read_text())}
+            except (json.JSONDecodeError, OSError):
+                pass
+        return dict(self.DEFAULTS)
+
+    def save(self):
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_suffix('.tmp')
+            tmp.write_text(json.dumps(self._data, indent=2))
+            tmp.replace(self.path)
+        except OSError as e:
+            log.debug(f"Could not save global settings: {e}")
+
+    def get(self, key, default=None):
+        return self._data.get(key, default)
+
+    def set(self, key, value):
+        self._data[key] = value
+
+    def summary(self) -> dict:
+        return dict(self._data)
 
 
 class InstallConfig:

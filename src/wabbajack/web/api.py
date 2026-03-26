@@ -115,18 +115,22 @@ async def get_games():
 
 @router.get("/settings")
 async def get_settings():
-    from ..config import InstallConfig
-    config = InstallConfig(Path.home() / "Games")
-    return config.summary()
+    from ..config import GlobalSettings, ensure_app_dirs
+    dirs = ensure_app_dirs()
+    gs = GlobalSettings()
+    return {
+        **gs.summary(),
+        "app_dirs": {k: str(v) for k, v in dirs.items()},
+    }
 
 
 @router.put("/settings")
 async def update_settings(settings: SettingsUpdate):
-    from ..config import InstallConfig
-    config = InstallConfig(Path.home() / "Games")
+    from ..config import GlobalSettings
+    gs = GlobalSettings()
     for key, val in settings.model_dump(exclude_none=True).items():
-        config.set(key, val)
-    config.save()
+        gs.set(key, val)
+    gs.save()
     return {"status": "ok"}
 
 
@@ -393,8 +397,8 @@ async def get_installs():
 
     # 2. Scan for .wabbajack files in common locations
     wj_files = []
-    # XDG data dir for this app + common download locations
-    app_data = home / ".local" / "share" / "wabbajack-py" / "modlists"
+    from ..config import xdg_data_home
+    app_data = xdg_data_home() / "modlists"
     scan_dirs = [
         app_data,
         home / "Downloads",
