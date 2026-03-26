@@ -4,10 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "wabbajack-py"
-version = "0.3.1"
+version = "0.4.0"
 description = "Cross-platform Wabbajack modlist installer"
 readme = "README.md"
-license = "MIT"
+license = {text = "MIT"}
 requires-python = ">=3.10"
 authors = [{ name = "Paul" }]
 keywords = ["wabbajack", "modding", "skyrim", "modlist", "installer"]
@@ -41,7 +41,7 @@ all = ["gdown>=5.0", "rich>=13.0", "sse-bsa>=1.0", "watchdog>=3.0", "keyring>=24
 wabbajack-py = "wabbajack.cli:main"
 
 [project.urls]
-Repository = "https://github.com/your-username/wabbajack-py"
+Repository = "https://github.com/pjschulz3004/wabbajack-py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/wabbajack"]
