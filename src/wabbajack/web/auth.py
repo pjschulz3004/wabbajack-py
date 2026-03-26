@@ -112,7 +112,10 @@ async def initiate_sso():
         log.error("websockets package required for Nexus SSO (pip install websockets)")
         return None, None
 
-    auth_url = f"https://www.nexusmods.com/sso?id={request_id}&application=wabbajack-py"
+    # Nexus SSO requires a registered application slug. 'vortex' is the only
+    # publicly accepted value (used by Vortex, MO2, and other modding tools).
+    # Custom app names like 'wabbajack-py' get rejected with "application ID was invalid".
+    auth_url = f"https://www.nexusmods.com/sso?id={request_id}&application=vortex"
 
     async def wait_for_token():
         try:

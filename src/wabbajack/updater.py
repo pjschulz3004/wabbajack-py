@@ -110,8 +110,11 @@ def _check_dev_update(timeout: int) -> dict:
         )
 
         # Compare local vs remote
+        # NOTE: '--' separates paths from revisions in rev-list/log.
+        # Placing it BEFORE the revision range breaks the command (treats range as path).
+        # _sanitize_upstream() already prevents argument injection via regex + startswith('-') check.
         behind = subprocess.run(
-            ['git', 'rev-list', '--count', '--', f'HEAD..{upstream}'],
+            ['git', 'rev-list', '--count', f'HEAD..{upstream}'],
             capture_output=True, text=True, timeout=5, cwd=git_root,
         )
         behind_count = int(behind.stdout.strip()) if behind.returncode == 0 else 0
@@ -123,7 +126,7 @@ def _check_dev_update(timeout: int) -> dict:
             result['latest'] = f'{behind_count} new commits'
             # Get commit log for changelog
             changelog = subprocess.run(
-                ['git', 'log', '--oneline', '--max-count=20', '--', f'HEAD..{upstream}'],
+                ['git', 'log', '--oneline', '--max-count=20', f'HEAD..{upstream}'],
                 capture_output=True, text=True, timeout=5, cwd=git_root,
             )
             result['changelog'] = changelog.stdout.strip()
@@ -352,7 +355,7 @@ def _update_binary(download_url: str, progress_fn=None) -> dict:
         tmp.close()
         actual_hash = sha256.hexdigest()
 
-        # Verify checksum against .sha256 sidecar file (if available)
+        # Verify checksum against .sha256 sidecar file
         sha_url = download_url + '.sha256'
         try:
             sha_resp = requests.get(sha_url, timeout=10)
@@ -362,9 +365,11 @@ def _update_binary(download_url: str, progress_fn=None) -> dict:
                     return {'success': False, 'message': f'Checksum mismatch: expected {expected_hash[:16]}..., got {actual_hash[:16]}...'}
                 log.info(f"Checksum verified: {actual_hash[:16]}...")
             else:
-                log.warning("No .sha256 sidecar file found, skipping integrity check")
-        except Exception:
-            log.warning("Could not fetch checksum file, skipping integrity check")
+                log.warning("No .sha256 sidecar file found — refusing to install unverified binary")
+                return {'success': False, 'message': 'No checksum file available to verify download integrity'}
+        except Exception as e:
+            log.warning(f"Could not verify checksum: {e}")
+            return {'success': False, 'message': f'Checksum verification failed: {e}'}
 
         os.chmod(tmp.name, 0o755)
 
