@@ -45,7 +45,7 @@ async function put<T>(path: string, body: any): Promise<T> {
 }
 
 export const api = {
-  gallery: () => get<any[]>('/gallery'),
+  gallery: () => get<any[]>('/gallery?nsfw=true'),
   galleryItem: (id: string) => get<any>(`/gallery/${id}`),
   games: () => get<any>('/games'),
   settings: () => get<any>('/settings'),
