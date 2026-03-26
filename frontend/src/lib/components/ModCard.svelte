@@ -1,7 +1,7 @@
 <script lang="ts">
   import GameBadge from './GameBadge.svelte';
 
-  let { modlist, onselect }: { modlist: any; onselect?: (modlist: any) => void } = $props();
+  let { modlist, onselect, compact = false }: { modlist: any; onselect?: (modlist: any) => void; compact?: boolean } = $props();
 
   let imgLoaded = $state(false);
   let imgError = $state(false);
@@ -21,7 +21,7 @@
   let archiveCount = $derived(dm.NumberOfArchives ?? 0);
 </script>
 
-<button class="mod-card" onclick={() => onselect?.(modlist)}>
+<button class="mod-card" class:compact onclick={() => onselect?.(modlist)}>
   <div class="banner">
     {#if !imgLoaded && !imgError}
       <div class="skeleton animate-pulse"></div>
@@ -246,4 +246,51 @@
     flex-shrink: 0;
     opacity: 0.7;
   }
+
+  /* Compact mode: smaller banner, tighter spacing */
+  .compact .banner { aspect-ratio: 2 / 1; }
+  .compact .body { padding: 0.5rem; gap: 0.25rem; }
+  .compact .title { font-size: 0.8rem; -webkit-line-clamp: 1; }
+  .compact .description { display: none; }
+  .compact .tags { display: none; }
+  .compact .sizes { gap: 0.5rem; padding-top: 0.25rem; margin-top: 0.25rem; }
+  .compact .size-item { font-size: 0.65rem; }
+
+  /* List mode (inside .grid-list parent): horizontal card */
+  :global(.grid-list) .mod-card {
+    flex-direction: row;
+    height: 4rem;
+  }
+  :global(.grid-list) .mod-card .banner {
+    width: 7rem;
+    min-width: 7rem;
+    aspect-ratio: unset;
+    height: 100%;
+  }
+  :global(.grid-list) .mod-card .body {
+    flex-direction: row;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.375rem 0.75rem;
+    overflow: hidden;
+  }
+  :global(.grid-list) .mod-card .title {
+    font-size: 0.85rem;
+    -webkit-line-clamp: 1;
+    min-width: 150px;
+    flex: 1;
+  }
+  :global(.grid-list) .mod-card .meta-row {
+    min-width: 100px;
+  }
+  :global(.grid-list) .mod-card .description { display: none; }
+  :global(.grid-list) .mod-card .tags { display: none; }
+  :global(.grid-list) .mod-card .sizes {
+    border-top: none;
+    margin-top: 0;
+    padding-top: 0;
+    gap: 0.75rem;
+    min-width: 180px;
+  }
+  :global(.grid-list) .mod-card:hover { transform: none; }
 </style>

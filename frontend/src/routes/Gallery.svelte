@@ -13,6 +13,9 @@
   type SortKey = 'recommended' | 'updated' | 'install_size' | 'download_size' | 'mod_count' | 'name';
   let sortKey = $state<SortKey>('recommended');
 
+  type ViewMode = 'grid' | 'compact' | 'list';
+  let viewMode = $state<ViewMode>('grid');
+
   $effect(() => {
     fetchGallery();
   });
@@ -152,6 +155,18 @@
       NSFW
     </button>
 
+    <div class="view-toggle" role="radiogroup" aria-label="View mode">
+      <button class="view-btn" class:active={viewMode === 'grid'} onclick={() => viewMode = 'grid'} aria-label="Grid view" title="Grid view">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+      </button>
+      <button class="view-btn" class:active={viewMode === 'compact'} onclick={() => viewMode = 'compact'} aria-label="Compact view" title="Compact view">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="4" height="4"/><rect x="10" y="3" width="4" height="4"/><rect x="17" y="3" width="4" height="4"/><rect x="3" y="10" width="4" height="4"/><rect x="10" y="10" width="4" height="4"/><rect x="17" y="10" width="4" height="4"/><rect x="3" y="17" width="4" height="4"/><rect x="10" y="17" width="4" height="4"/><rect x="17" y="17" width="4" height="4"/></svg>
+      </button>
+      <button class="view-btn" class:active={viewMode === 'list'} onclick={() => viewMode = 'list'} aria-label="List view" title="List view">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1" fill="currentColor"/><circle cx="4" cy="12" r="1" fill="currentColor"/><circle cx="4" cy="18" r="1" fill="currentColor"/></svg>
+      </button>
+    </div>
+
     <span class="result-count">{filtered.length} lists</span>
   </div>
 
@@ -190,9 +205,9 @@
       <p>Try adjusting your search or filters</p>
     </div>
   {:else}
-    <div class="grid">
+    <div class="grid" class:grid-compact={viewMode === 'compact'} class:grid-list={viewMode === 'list'}>
       {#each filtered as modlist (modlist.links?.machineURL ?? modlist.title)}
-        <ModCard {modlist} onselect={handleSelect} />
+        <ModCard {modlist} onselect={handleSelect} compact={viewMode !== 'grid'} />
       {/each}
     </div>
   {/if}
@@ -270,6 +285,37 @@
     margin-left: auto;
   }
 
+  /* View toggle */
+  .view-toggle {
+    display: inline-flex;
+    gap: 2px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 2px;
+  }
+
+  .view-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.375rem;
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .view-btn:hover { color: var(--text-primary); }
+
+  .view-btn.active {
+    background: var(--accent);
+    color: #0f0f13;
+  }
+
+  /* Grid modes */
   .grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -277,12 +323,24 @@
     align-content: start;
   }
 
+  .grid-compact {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.625rem;
+  }
+
+  .grid-list {
+    grid-template-columns: 1fr;
+    gap: 0.375rem;
+  }
+
   @media (max-width: 1200px) {
     .grid { grid-template-columns: repeat(2, 1fr); }
+    .grid-compact { grid-template-columns: repeat(3, 1fr); }
   }
 
   @media (max-width: 900px) {
     .grid { grid-template-columns: 1fr; }
+    .grid-compact { grid-template-columns: repeat(2, 1fr); }
   }
 
   @media (max-width: 768px) {
