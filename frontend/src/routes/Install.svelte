@@ -154,10 +154,15 @@
   let currentState = $derived($installState);
 
   let isRunning = $derived(
+    currentState?.phase === 'started' || currentState?.phase === 'running' ||
+    currentState?.phase === 'downloading' || currentState?.phase === 'extracting' ||
+    currentState?.phase === 'placing' || currentState?.phase === 'bsa' ||
+    currentState?.phase === 'mo2' ||
     currentState?.status === 'running' || currentState?.status === 'installing'
   );
-  let isPaused = $derived(currentState?.status === 'paused');
+  let isPaused = $derived(currentState?.phase === 'paused' || currentState?.status === 'paused');
   let isDone = $derived(
+    currentState?.phase === 'complete' || currentState?.phase === 'error' ||
     currentState?.status === 'complete' || currentState?.status === 'error'
   );
 
