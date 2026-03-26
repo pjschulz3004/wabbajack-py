@@ -13,6 +13,9 @@ STATIC_DIR = Path(__file__).parent / "static"
 # Session token for local auth (prevents cross-site request forgery on mutating endpoints)
 SESSION_TOKEN = secrets.token_urlsafe(32)
 
+# Stored by cli.py serve command so the update endpoint can restart with the same args
+_serve_restart_cmd: list[str] | None = None
+
 
 def create_app():
     app = FastAPI(title="wabbajack-py", version="0.3.0")

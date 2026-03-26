@@ -10,6 +10,7 @@ export const logs = writable<WsMessage[]>([]);
 export const progress = writable<WsMessage | null>(null);
 export const installState = writable<WsMessage | null>(null);
 export const manualDownloads = writable<WsMessage[]>([]);
+export const updateProgress = writable<WsMessage | null>(null);
 
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setInterval> | null = null;
@@ -64,6 +65,12 @@ export function connectWs() {
         break;
       case 'error':
         installState.set(msg);
+        break;
+      case 'update_progress':
+      case 'update_complete':
+      case 'update_restart':
+      case 'update_error':
+        updateProgress.set(msg);
         break;
     }
   };

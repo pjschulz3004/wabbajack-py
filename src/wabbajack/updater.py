@@ -181,8 +181,11 @@ def _check_release_update(timeout: int) -> dict:
     return result
 
 
-def apply_update(info: dict | None = None) -> dict:
-    """Apply an available update. Returns status dict."""
+def apply_update(info: dict | None = None, progress_fn=None) -> dict:
+    """Apply an available update. Returns status dict.
+
+    progress_fn: Optional callback(step: str, message: str, pct: int) for progress reporting.
+    """
     if info is None:
         info = check_for_update()
 
@@ -192,24 +195,43 @@ def apply_update(info: dict | None = None) -> dict:
     install_type = info.get('install_type', get_install_type())
 
     if install_type == 'dev':
-        return _update_dev()
+        return _update_dev(progress_fn=progress_fn)
     elif install_type == 'pip':
-        return _update_pip()
+        return _update_pip(progress_fn=progress_fn)
     elif install_type == 'binary':
         if info.get('download_url'):
-            return _update_binary(info['download_url'])
+            return _update_binary(info['download_url'], progress_fn=progress_fn)
         return {'success': False, 'message': 'No binary available for this platform'}
     return {'success': False, 'message': f'Unknown install type: {install_type}'}
 
 
-def _update_dev() -> dict:
-    """Update dev install: git pull + pip install -e ."""
+def _update_dev(progress_fn=None) -> dict:
+    """Update dev install: git pull + pip install -e . + rebuild frontend."""
     git_root = _find_git_root()
     if not git_root:
         return {'success': False, 'message': 'Cannot find git root directory'}
 
+    def progress(step, message, pct):
+        if progress_fn:
+            progress_fn(step, message, pct)
+
     try:
-        # git pull
+        # Fetch remote
+        progress("fetch", "Fetching from GitHub...", 10)
+        tracking = subprocess.run(
+            ['git', 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'],
+            capture_output=True, text=True, timeout=5, cwd=git_root,
+        )
+        upstream = tracking.stdout.strip() if tracking.returncode == 0 else 'origin/master'
+        remote = upstream.split('/')[0] if '/' in upstream else 'origin'
+
+        subprocess.run(
+            ['git', 'fetch', remote, '--quiet'],
+            capture_output=True, timeout=30, cwd=git_root,
+        )
+
+        # Pull changes
+        progress("pull", "Pulling changes...", 30)
         pull = subprocess.run(
             ['git', 'pull', '--ff-only'],
             capture_output=True, text=True, timeout=30, cwd=git_root,
@@ -218,40 +240,63 @@ def _update_dev() -> dict:
             return {'success': False, 'message': f'git pull failed: {pull.stderr[:500]}'}
 
         # Reinstall in editable mode
+        progress("install", "Installing dependencies...", 50)
         subprocess.run(
             [sys.executable, '-m', 'pip', 'install', '-e', str(git_root), '--quiet'],
             capture_output=True, text=True, timeout=120, cwd=git_root,
         )
 
-        # Rebuild frontend if npm is available
+        # Rebuild frontend
+        progress("build", "Building frontend...", 70)
         frontend_dir = git_root / 'frontend'
         if frontend_dir.exists() and (frontend_dir / 'package.json').exists():
             subprocess.run(
-                ['npx', 'vite', 'build'],
+                ['npm', 'install', '--silent'],
                 capture_output=True, timeout=60, cwd=frontend_dir,
             )
+            subprocess.run(
+                ['npx', 'vite', 'build', '--quiet'],
+                capture_output=True, timeout=120, cwd=frontend_dir,
+            )
+            # Copy built files to static dir for serving
+            static_dir = git_root / 'src' / 'wabbajack' / 'web' / 'static'
+            static_dir.mkdir(parents=True, exist_ok=True)
+            dist_dir = frontend_dir / 'dist'
+            if dist_dir.exists():
+                for item in dist_dir.iterdir():
+                    dest = static_dir / item.name
+                    if item.is_dir():
+                        shutil.copytree(item, dest, dirs_exist_ok=True)
+                    else:
+                        shutil.copy2(item, dest)
+
+        progress("done", "Update complete!", 100)
 
         commits = pull.stdout.strip()
         return {
             'success': True,
-            'message': f'Updated from git. {commits}. Restart to use new version.',
+            'message': f'Updated successfully. {commits}',
             'restart_required': True,
         }
     except Exception as e:
         return {'success': False, 'message': str(e)}
 
 
-def _update_pip() -> dict:
+def _update_pip(progress_fn=None) -> dict:
     """Update via pip."""
+    if progress_fn:
+        progress_fn("install", "Upgrading via pip...", 50)
     try:
         result = subprocess.run(
             [sys.executable, '-m', 'pip', 'install', '--upgrade', 'wabbajack-py'],
             capture_output=True, text=True, timeout=120,
         )
         if result.returncode == 0:
+            if progress_fn:
+                progress_fn("done", "Update complete!", 100)
             return {
                 'success': True,
-                'message': 'Updated via pip. Restart to use new version.',
+                'message': 'Updated via pip.',
                 'restart_required': True,
             }
         return {'success': False, 'message': f'pip upgrade failed: {result.stderr[:500]}'}
@@ -259,9 +304,12 @@ def _update_pip() -> dict:
         return {'success': False, 'message': str(e)}
 
 
-def _update_binary(download_url: str) -> dict:
+def _update_binary(download_url: str, progress_fn=None) -> dict:
     """Download and replace the running binary."""
     import requests
+
+    if progress_fn:
+        progress_fn("download", "Downloading binary...", 30)
 
     current_exe = Path(sys.executable)
     if not current_exe.exists():
@@ -321,3 +369,14 @@ def _update_binary(download_url: str) -> dict:
             except Exception:
                 pass
         return {'success': False, 'message': f'Binary update failed: {e}'}
+
+
+def restart_server():
+    """Restart the server process using os.execv (replaces current process)."""
+    from .web import _serve_restart_cmd
+    cmd = _serve_restart_cmd
+    if not cmd:
+        log.warning("No serve command stored, cannot auto-restart")
+        return False
+    log.info(f"Restarting server: {' '.join(cmd)}")
+    os.execv(cmd[0], cmd)

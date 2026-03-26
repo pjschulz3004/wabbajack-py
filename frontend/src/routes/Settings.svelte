@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api } from '../lib/api';
+  import { updateProgress, connected } from '../lib/stores/ws';
 
   interface NexusStatusResponse {
     status: 'logged_out' | 'free' | 'premium';
@@ -43,6 +44,42 @@
   let updateChecking = $state(false);
   let updateApplying = $state(false);
   let updateError = $state('');
+  let updateStep = $state('');
+  let updateMessage = $state('');
+  let updatePct = $state(0);
+  let restarting = $state(false);
+
+  // Watch WS update events
+  let currentUpdateMsg = $derived($updateProgress);
+
+  $effect(() => {
+    const msg = currentUpdateMsg;
+    if (!msg) return;
+    if (msg.type === 'update_progress') {
+      updateApplying = true;
+      updateStep = msg.step ?? '';
+      updateMessage = msg.message ?? '';
+      updatePct = msg.pct ?? 0;
+    } else if (msg.type === 'update_complete') {
+      updateMessage = msg.message ?? 'Update complete!';
+      updatePct = 100;
+    } else if (msg.type === 'update_restart') {
+      restarting = true;
+      updateMessage = 'Restarting server...';
+    } else if (msg.type === 'update_error') {
+      updateApplying = false;
+      updateError = msg.message ?? 'Update failed';
+    }
+  });
+
+  // When server comes back after restart, reload the page
+  let isConnected = $derived($connected);
+  $effect(() => {
+    if (restarting && isConnected) {
+      // Server is back, reload to pick up new frontend
+      setTimeout(() => window.location.reload(), 500);
+    }
+  });
 
   async function checkUpdate() {
     updateChecking = true;
@@ -59,16 +96,14 @@
   async function applyUpdate() {
     updateApplying = true;
     updateError = '';
+    updateStep = 'starting';
+    updateMessage = 'Starting update...';
+    updatePct = 0;
     try {
-      const result = await api.applyUpdate();
-      if (result.success) {
-        updateInfo = { ...updateInfo, applied: true, message: result.message };
-      } else {
-        updateError = result.message || 'Update failed';
-      }
+      await api.applyUpdate();
+      // Server returns immediately; progress comes via WebSocket
     } catch (e: any) {
       updateError = e.message || 'Update failed';
-    } finally {
       updateApplying = false;
     }
   }
@@ -480,12 +515,12 @@
       <div class="update-row">
         <div class="update-info">
           <span class="info-label">Current</span>
-          <span class="badge badge-accent">v{updateInfo?.current ?? '0.2.0'}</span>
+          <span class="badge badge-accent">{updateInfo?.current ?? '0.3.0'}</span>
         </div>
         {#if updateInfo?.latest && updateInfo.latest !== updateInfo.current}
           <div class="update-info">
             <span class="info-label">Latest</span>
-            <span class="badge badge-success">v{updateInfo.latest}</span>
+            <span class="badge badge-success">{updateInfo.latest}</span>
           </div>
         {/if}
         {#if updateInfo?.install_type}
@@ -496,28 +531,39 @@
         {/if}
       </div>
 
-      <div class="update-actions">
-        {#if updateInfo?.applied}
-          <p class="update-success">{updateInfo.message}</p>
-        {:else if updateInfo?.update_available}
-          <button class="btn btn-primary" onclick={applyUpdate} disabled={updateApplying}>
-            {updateApplying ? 'Updating...' : `Update to v${updateInfo.latest}`}
-          </button>
-          {#if updateInfo.changelog}
-            <details class="changelog">
-              <summary>Changelog</summary>
-              <pre class="changelog-body">{updateInfo.changelog}</pre>
-            </details>
+      {#if updateApplying}
+        <!-- Update progress -->
+        <div class="update-progress">
+          <div class="update-progress-bar">
+            <div class="update-progress-fill" style="width: {updatePct}%"></div>
+          </div>
+          <div class="update-progress-info">
+            <span class="update-step">{updateMessage}</span>
+            <span class="update-pct">{updatePct}%</span>
+          </div>
+        </div>
+      {:else}
+        <div class="update-actions">
+          {#if updateInfo?.update_available}
+            <button class="btn btn-primary" onclick={applyUpdate} disabled={updateApplying}>
+              Update to {updateInfo.latest}
+            </button>
+            {#if updateInfo.changelog}
+              <details class="changelog">
+                <summary>Changelog</summary>
+                <pre class="changelog-body">{updateInfo.changelog}</pre>
+              </details>
+            {/if}
+          {:else}
+            <button class="btn btn-ghost" onclick={checkUpdate} disabled={updateChecking}>
+              {updateChecking ? 'Checking...' : 'Check for Updates'}
+            </button>
+            {#if updateInfo && !updateInfo.update_available && !updateInfo.error}
+              <span class="update-ok">Up to date</span>
+            {/if}
           {/if}
-        {:else}
-          <button class="btn btn-ghost" onclick={checkUpdate} disabled={updateChecking}>
-            {updateChecking ? 'Checking...' : 'Check for Updates'}
-          </button>
-          {#if updateInfo && !updateInfo.update_available && !updateInfo.error}
-            <span class="update-ok">Up to date</span>
-          {/if}
-        {/if}
-      </div>
+        </div>
+      {/if}
     </section>
 
     <!-- Save Button -->
@@ -543,6 +589,16 @@
     </div>
   {/if}
 </div>
+
+{#if restarting}
+  <div class="restart-overlay">
+    <div class="restart-card">
+      <div class="restart-spinner"></div>
+      <h3>Restarting Server</h3>
+      <p>Applying update and reloading...</p>
+    </div>
+  </div>
+{/if}
 
 <style>
   .settings-page {
@@ -957,6 +1013,91 @@
     white-space: pre-wrap;
     max-height: 300px;
     overflow-y: auto;
+  }
+
+  /* Update progress */
+  .update-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .update-progress-bar {
+    height: 6px;
+    background: var(--bg-tertiary);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .update-progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 3px;
+    transition: width 0.4s ease;
+    box-shadow: 0 0 8px var(--accent-glow);
+  }
+
+  .update-progress-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .update-step {
+    font-size: 0.8rem;
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
+  .update-pct {
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  /* Restart overlay */
+  .restart-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: rgba(15, 15, 19, 0.92);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(4px);
+  }
+
+  .restart-card {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .restart-card h3 {
+    font-size: 1.25rem;
+    color: var(--text-primary);
+    font-weight: 700;
+  }
+
+  .restart-card p {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+  }
+
+  .restart-spinner {
+    width: 48px;
+    height: 48px;
+    border: 3px solid var(--bg-tertiary);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
   }
 
   @media (max-width: 600px) {

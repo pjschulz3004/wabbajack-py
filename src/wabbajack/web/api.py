@@ -325,8 +325,32 @@ async def update_check():
 
 @router.post("/update/apply")
 async def update_apply():
-    from ..updater import apply_update
-    return apply_update()
+    from ..updater import check_for_update, apply_update, restart_server
+    from .ws import push_event
+
+    info = check_for_update()
+    if not info.get('update_available'):
+        return {"success": False, "message": "Already up to date"}
+
+    def progress_fn(step, message, pct):
+        push_event("update_progress", step=step, message=message, pct=pct)
+
+    def run_update():
+        import time
+        result = apply_update(info, progress_fn=progress_fn)
+        if result.get('success'):
+            push_event("update_complete", message=result['message'])
+            if result.get('restart_required'):
+                time.sleep(1.5)  # Let WS events flush to clients
+                push_event("update_restart")
+                time.sleep(0.5)
+                restart_server()
+        else:
+            push_event("update_error", message=result.get('message', 'Unknown error'))
+
+    _update_thread = threading.Thread(target=run_update, daemon=True)
+    _update_thread.start()
+    return {"status": "updating"}
 
 
 # ── Nexus Auth (continued) ──────────────────────────────────────────

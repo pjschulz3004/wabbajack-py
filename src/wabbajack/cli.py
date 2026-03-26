@@ -50,6 +50,13 @@ def serve(port, no_browser, host):
     """Launch the web GUI."""
     import uvicorn
     from .web import create_app
+    from . import web
+
+    # Store restart command so the updater can restart with the same args
+    web._serve_restart_cmd = [
+        sys.executable, '-m', 'wabbajack.cli', 'serve',
+        '--port', str(port), '--host', host, '--no-browser',
+    ]
 
     app = create_app()
 
