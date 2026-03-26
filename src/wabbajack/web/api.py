@@ -52,9 +52,10 @@ class SettingsUpdate(BaseModel):
 # ── Gallery ──────────────────────────────────────────────────────────
 
 @router.get("/gallery")
-async def get_gallery():
-    from .gallery import fetch_gallery
-    return await fetch_gallery()
+async def get_gallery(q: str = '', game: str = '', nsfw: bool = False):
+    """Get modlist gallery with optional search/filter."""
+    from .gallery import search_gallery
+    return await search_gallery(query=q, game=game, nsfw=nsfw)
 
 
 @router.get("/gallery/{machine_url:path}")
