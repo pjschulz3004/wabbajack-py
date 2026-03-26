@@ -28,14 +28,13 @@ def get_nexus_token():
 
 
 def set_nexus_token(token: str):
-    """Store Nexus API token and validate it."""
+    """Store Nexus API token and validate it with the Nexus API."""
     global _nexus_token, _nexus_username, _nexus_premium
     _nexus_token = token
 
-    # Validate token
-    import requests
+    import httpx
     try:
-        resp = requests.get(
+        resp = httpx.get(
             "https://api.nexusmods.com/v1/users/validate.json",
             headers={"apikey": token, "accept": "application/json"},
             timeout=10,

@@ -1219,7 +1219,7 @@ class TestNexusAuthState:
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {"name": "pauluser", "is_premium": True}
-        with patch("requests.get", return_value=mock_resp):
+        with patch("httpx.get", return_value=mock_resp):
             set_nexus_token("validtoken12345")
         assert auth._nexus_token == "validtoken12345"
         assert auth._nexus_username == "pauluser"
@@ -1229,7 +1229,7 @@ class TestNexusAuthState:
         import wabbajack.web.auth as auth
         mock_resp = MagicMock()
         mock_resp.status_code = 401
-        with patch("requests.get", return_value=mock_resp):
+        with patch("httpx.get", return_value=mock_resp):
             set_nexus_token("badtoken")
         assert auth._nexus_token is None
 
@@ -1272,7 +1272,7 @@ class TestUpdaterLogic:
         from wabbajack.updater import _check_release_update
         mock_resp = MagicMock()
         mock_resp.status_code = 404
-        with patch("requests.get", return_value=mock_resp):
+        with patch("httpx.get", return_value=mock_resp):
             result = _check_release_update(timeout=5)
         assert result["update_available"] is False
 
@@ -1528,7 +1528,7 @@ class TestNexusAuth:
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {"name": "PowerUser", "is_premium": True}
-        monkeypatch.setattr("requests.get", MagicMock(return_value=mock_resp))
+        monkeypatch.setattr("httpx.get", MagicMock(return_value=mock_resp))
 
         auth.set_nexus_token("abc123validkey")
 
@@ -1543,7 +1543,7 @@ class TestNexusAuth:
 
         mock_resp = MagicMock()
         mock_resp.status_code = 401
-        monkeypatch.setattr("requests.get", MagicMock(return_value=mock_resp))
+        monkeypatch.setattr("httpx.get", MagicMock(return_value=mock_resp))
 
         auth.set_nexus_token("bad_key")
         assert auth._nexus_token is None
@@ -1551,12 +1551,12 @@ class TestNexusAuth:
     def test_set_token_clears_on_network_error(self, monkeypatch):
         """A network exception during validation must clear the token."""
         import wabbajack.web.auth as auth
-        import requests
+        import httpx
         from unittest.mock import MagicMock
 
         monkeypatch.setattr(
-            "requests.get",
-            MagicMock(side_effect=requests.exceptions.ConnectionError("no network")),
+            "httpx.get",
+            MagicMock(side_effect=httpx.ConnectError("no network")),
         )
 
         auth.set_nexus_token("key_that_cannot_be_validated")
