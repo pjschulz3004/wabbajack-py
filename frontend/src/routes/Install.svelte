@@ -59,12 +59,27 @@
     const game = modlist.game ?? '';
     const title = (modlist.title ?? 'modlist').replace(/[^a-zA-Z0-9_-]/g, '_');
 
-    // Fetch detected installs to find base paths
+    // Fetch detected installs to find local .wabbajack file and base paths
     fetch('/api/installs').then(r => r.json()).then((data: any) => {
       const base = data.downloads_base ?? '';
-      // Per-game downloads directory
       if (!downloadsDir && game) downloadsDir = `${base}/${game}`;
       if (!outputDir) outputDir = base.replace('/WabbajackDownloads', '') + `/${title}`;
+
+      // Try to find a local .wabbajack file matching this modlist
+      if (!wabbajackPath) {
+        const wjFiles: string[] = data.wabbajack_files ?? [];
+        const titleLower = (modlist.title ?? '').toLowerCase().replace(/\s+/g, '');
+        const match = wjFiles.find((f: string) => {
+          const fname = f.split('/').pop()?.toLowerCase().replace(/\s+/g, '') ?? '';
+          return fname.includes(titleLower) || titleLower.includes(fname.replace(/\.wabbajack.*/, ''));
+        });
+        if (match) {
+          wabbajackPath = match;
+        } else if (modlist.links?.download) {
+          // Fallback: use download URL (server will need to download it first)
+          wabbajackPath = modlist.links.download;
+        }
+      }
     }).catch(() => {});
 
     // Fetch actual games to find the game dir
@@ -76,11 +91,6 @@
       );
       if (match?.path && !gameDir) gameDir = match.path;
     }).catch(() => {});
-
-    // Set wabbajack path from modlist download URL
-    if (modlist.links?.download && !wabbajackPath) {
-      wabbajackPath = modlist.links.download;
-    }
   });
 
   // Auto-subscribed store values (no leak)
