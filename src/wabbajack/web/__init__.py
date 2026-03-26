@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 log = logging.getLogger(__name__)
 
@@ -20,6 +21,12 @@ _serve_restart_cmd: list[str] | None = None
 def create_app():
     from .. import __version__
     app = FastAPI(title="wabbajack-py", version=__version__)
+    # TrustedHost blocks DNS rebinding (attacker domain resolves to 127.0.0.1
+    # but Host header reads attacker.com — rejected with 400)
+    # TrustedHost blocks DNS rebinding (attacker domain resolves to 127.0.0.1
+    # but Host header reads attacker.com — rejected with 400).
+    # "testserver" is Starlette's TestClient default Host header.
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "testserver"])
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],

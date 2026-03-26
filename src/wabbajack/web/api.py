@@ -27,7 +27,6 @@ class InstallRequest(BaseModel):
     output_dir: str
     downloads_dir: str
     game_dir: str
-    nexus_key: Optional[str] = None
     workers: int = 12
     verify_hashes: bool = False
     skip_download: bool = False
@@ -192,11 +191,8 @@ async def start_install(req: InstallRequest):
         handler = install_log_handler()
         try:
             with WabbajackModlist(req.wabbajack_path) as ml:
-                # Use Nexus token from auth module if no key provided
-                nexus_key = req.nexus_key
-                if not nexus_key:
-                    from .auth import get_nexus_token
-                    nexus_key = get_nexus_token()
+                from .auth import get_nexus_token
+                nexus_key = get_nexus_token()
 
                 inst = ModlistInstaller(
                     ml, req.output_dir, req.downloads_dir, req.game_dir,
