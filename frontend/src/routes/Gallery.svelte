@@ -159,7 +159,6 @@
     display: flex;
     flex-direction: column;
     gap: 1rem;
-    height: 100%;
   }
 
   .toolbar {
@@ -231,8 +230,6 @@
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 1rem;
-    overflow-y: auto;
-    flex: 1;
     align-content: start;
   }
 
@@ -293,7 +290,6 @@
     gap: 0.75rem;
     padding: 3rem 1rem;
     text-align: center;
-    flex: 1;
   }
 
   .error-state svg { color: var(--error); }
