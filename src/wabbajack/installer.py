@@ -4,7 +4,6 @@ from pathlib import Path
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from .modlist import WabbajackModlist
 from .finder import CaseInsensitiveFinder
 from .cache import ArchiveCache
 from .hash import verify_archive

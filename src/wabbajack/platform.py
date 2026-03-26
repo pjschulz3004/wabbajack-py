@@ -1,5 +1,5 @@
 """Cross-platform game directory detection and path utilities."""
-import os, sys, logging
+import sys, logging
 from pathlib import Path
 
 log = logging.getLogger(__name__)
