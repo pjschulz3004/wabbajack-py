@@ -90,10 +90,10 @@
     return sorted;
   });
 
-  let { onInstall }: { onInstall?: (modlist: any) => void } = $props();
+  let { onSelect }: { onSelect?: (modlist: any) => void } = $props();
 
   function handleSelect(modlist: any) {
-    onInstall?.(modlist);
+    onSelect?.(modlist);
   }
 </script>
 
@@ -111,6 +111,7 @@
         placeholder="Search modlists..."
         bind:value={searchQuery}
         class="search-input"
+        onkeydown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
       />
     </div>
 

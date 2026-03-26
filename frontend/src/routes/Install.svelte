@@ -15,6 +15,35 @@
   let workers = $state(4);
   let showForm = $state(true);
 
+  // Set smart defaults when modlist changes
+  $effect(() => {
+    if (!modlist) return;
+    const game = modlist.game ?? '';
+    const title = (modlist.title ?? 'modlist').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const home = '/home/' + (typeof window !== 'undefined' ? 'paul' : 'user'); // will be overridden
+
+    // Fetch actual games to find the game dir
+    api.games().then((data: any) => {
+      const games = data.games ?? data ?? [];
+      const match = games.find((g: any) => g.id?.toLowerCase() === game.toLowerCase() || g.name?.toLowerCase() === game.toLowerCase());
+      if (match?.path) gameDir = match.path;
+
+      // Set download dir from modlist download URL
+      if (modlist.links?.download) {
+        wabbajackPath = modlist.links.download;
+      }
+    }).catch(() => {});
+
+    // Fetch settings for base paths
+    api.settings().then((s: any) => {
+      if (!outputDir) outputDir = s.output_dir || `${home}/Games/${title}`;
+      if (!downloadsDir) downloadsDir = s.downloads_dir || `${home}/Games/WabbajackDownloads`;
+    }).catch(() => {
+      if (!outputDir) outputDir = `~/Games/${title}`;
+      if (!downloadsDir) downloadsDir = '~/Games/WabbajackDownloads';
+    });
+  });
+
   // Auto-subscribed store values (no leak)
   let currentLogs = $derived($logs);
   let currentProgress = $derived($progress);

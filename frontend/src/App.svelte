@@ -1,12 +1,13 @@
 <script lang="ts">
   import { connected, progress, installState, connectWs } from './lib/stores/ws';
   import Gallery from './routes/Gallery.svelte';
+  import ModDetail from './routes/ModDetail.svelte';
   import Install from './routes/Install.svelte';
   import Downloads from './routes/Downloads.svelte';
   import Profiles from './routes/Profiles.svelte';
   import Settings from './routes/Settings.svelte';
 
-  type Page = 'gallery' | 'install' | 'downloads' | 'profiles' | 'settings';
+  type Page = 'gallery' | 'moddetail' | 'install' | 'downloads' | 'profiles' | 'settings';
 
   let currentPage = $state<Page>('gallery');
   let selectedModlist = $state<any>(null);
@@ -16,9 +17,14 @@
   // Fetch actual version from server
   $effect(() => {
     fetch('/api/update/check').then(r => r.json()).then(d => {
-      if (d.current) appVersion = d.current.split(' ')[0]; // strip git hash
+      if (d.current) appVersion = d.current.split(' ')[0];
     }).catch(() => {});
   });
+
+  function openModDetail(modlist: any) {
+    selectedModlist = modlist;
+    currentPage = 'moddetail';
+  }
 
   function navigateToInstall(modlist?: any) {
     selectedModlist = modlist ?? null;
@@ -100,7 +106,7 @@
           <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
         </svg>
       </button>
-      <h2 class="page-title">{navItems.find(n => n.id === currentPage)?.label ?? ''}</h2>
+      <h2 class="page-title">{currentPage === 'moddetail' ? selectedModlist?.title ?? 'Modlist' : navItems.find(n => n.id === currentPage)?.label ?? ''}</h2>
 
       {#if isInstalling}
         <button class="install-indicator" onclick={() => currentPage = 'install'}>
@@ -115,8 +121,12 @@
 
     <!-- Page content -->
     <div class="content">
-      {#if currentPage === 'gallery'}
-        <Gallery onInstall={navigateToInstall} />
+      <!-- Gallery stays mounted to preserve filter/search/scroll state -->
+      <div style:display={currentPage === 'gallery' ? 'contents' : 'none'}>
+        <Gallery onSelect={openModDetail} />
+      </div>
+      {#if currentPage === 'moddetail' && selectedModlist}
+        <ModDetail modlist={selectedModlist} onBack={() => currentPage = 'gallery'} onInstall={navigateToInstall} />
       {:else if currentPage === 'install'}
         <Install modlist={selectedModlist} />
       {:else if currentPage === 'downloads'}
