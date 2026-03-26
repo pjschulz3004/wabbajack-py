@@ -1361,3 +1361,92 @@ class TestOctoDiff:
         delta = self._make_delta(tmp_path, [], expected_length=0)
         assert apply_delta(basis, delta, output) is True
         assert output.read_bytes() == b''
+
+
+class TestGallerySearch:
+    """Test gallery search/filter logic."""
+
+    def test_search_by_title(self):
+        from wabbajack.web.gallery import search_gallery
+        import asyncio
+        # Mock the gallery data
+        import wabbajack.web.gallery as gmod
+        gmod._cache["data"] = [
+            {"title": "Twisted Skyrim", "author": "TwistedModding", "description": "A modlist", "tags": ["Official"], "nsfw": True, "game": "SkyrimSpecialEdition"},
+            {"title": "Wanderlust", "author": "Someone", "description": "Explore", "tags": [], "nsfw": False, "game": "SkyrimSpecialEdition"},
+        ]
+        gmod._cache["fetched_at"] = 9999999999
+
+        results = asyncio.run(search_gallery(query="twisted"))
+        # NSFW off by default, Twisted is nsfw
+        assert len(results) == 0
+
+        results = asyncio.run(search_gallery(query="twisted", nsfw=True))
+        assert len(results) == 1
+        assert results[0]["title"] == "Twisted Skyrim"
+
+    def test_filter_by_game(self):
+        from wabbajack.web.gallery import search_gallery
+        import asyncio
+        import wabbajack.web.gallery as gmod
+        gmod._cache["data"] = [
+            {"title": "A", "game": "SkyrimSpecialEdition", "tags": [], "nsfw": False},
+            {"title": "B", "game": "Fallout4", "tags": [], "nsfw": False},
+        ]
+        gmod._cache["fetched_at"] = 9999999999
+
+        results = asyncio.run(search_gallery(game="Fallout4"))
+        assert len(results) == 1
+        assert results[0]["title"] == "B"
+
+    def test_filter_nsfw_default_off(self):
+        from wabbajack.web.gallery import search_gallery
+        import asyncio
+        import wabbajack.web.gallery as gmod
+        gmod._cache["data"] = [
+            {"title": "Safe", "tags": [], "nsfw": False},
+            {"title": "NotSafe", "tags": [], "nsfw": True},
+        ]
+        gmod._cache["fetched_at"] = 9999999999
+
+        results = asyncio.run(search_gallery())
+        assert len(results) == 1
+        assert results[0]["title"] == "Safe"
+
+
+class TestInstallRequestValidation:
+    """Test Pydantic model validation on install requests."""
+
+    def test_rejects_path_traversal(self):
+        from wabbajack.web.api import InstallRequest
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError, match="Path traversal"):
+            InstallRequest(
+                wabbajack_path="/home/user/../etc/passwd",
+                output_dir="/tmp/out",
+                downloads_dir="/tmp/dl",
+                game_dir="/tmp/game",
+            )
+
+    def test_rejects_null_bytes(self):
+        from wabbajack.web.api import InstallRequest
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError, match="Null bytes"):
+            InstallRequest(
+                wabbajack_path="/home/user/test\x00.wabbajack",
+                output_dir="/tmp/out",
+                downloads_dir="/tmp/dl",
+                game_dir="/tmp/game",
+            )
+
+    def test_workers_range(self):
+        from wabbajack.web.api import InstallRequest
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError, match="Workers must be"):
+            InstallRequest(
+                wabbajack_path="/home/user/test.wabbajack",
+                output_dir="/tmp/out",
+                downloads_dir="/tmp/dl",
+                game_dir="/tmp/game",
+                workers=100,
+            )
