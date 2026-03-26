@@ -1,13 +1,10 @@
 """Tests for wabbajack-py FastAPI web API."""
 import json
 import pytest
-from unittest.mock import patch, MagicMock
-from pathlib import Path
-
-import httpx
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 
-from wabbajack.web import create_app
+from wabbajack.web import create_app, SESSION_TOKEN
 
 
 @pytest.fixture
@@ -18,8 +15,8 @@ def app():
 
 @pytest.fixture
 def client(app):
-    """Create a TestClient wrapping the app."""
-    return TestClient(app)
+    """Create a TestClient with session token for authenticated requests."""
+    return TestClient(app, headers={"X-Session-Token": SESSION_TOKEN})
 
 
 # ── GET /api/games ──────────────────────────────────────────────────
