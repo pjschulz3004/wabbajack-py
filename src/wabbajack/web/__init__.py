@@ -23,7 +23,7 @@ def create_app():
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-        allow_methods=["*"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["*"],
         expose_headers=["X-Session-Token"],
     )
@@ -32,7 +32,7 @@ def create_app():
     async def auth_middleware(request: Request, call_next):
         """Require session token for mutating API requests."""
         if request.method in ("POST", "PUT", "DELETE") and request.url.path.startswith("/api/"):
-            token = request.headers.get("X-Session-Token") or request.query_params.get("token")
+            token = request.headers.get("X-Session-Token")
             if token != SESSION_TOKEN:
                 return JSONResponse(status_code=403, content={"detail": "Invalid session token"})
         return await call_next(request)

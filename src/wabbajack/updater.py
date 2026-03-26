@@ -6,7 +6,7 @@ from . import __version__
 
 log = logging.getLogger(__name__)
 
-GITHUB_REPO = os.environ.get("WABBAJACK_PY_REPO", "pjschulz3004/wabbajack-py")
+GITHUB_REPO = "pjschulz3004/wabbajack-py"
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 GITHUB_API_COMMITS = f"https://api.github.com/repos/{GITHUB_REPO}/commits/main"
 CURRENT_VERSION = __version__
@@ -89,14 +89,18 @@ def _check_dev_update(timeout: int) -> dict:
         )
         upstream = tracking.stdout.strip() if tracking.returncode == 0 else 'origin/master'
 
-        # Fetch remote
+        # Fetch remote (use -- to prevent argument injection)
         remote = upstream.split('/')[0] if '/' in upstream else 'origin'
+        if remote.startswith('-'):
+            remote = 'origin'
         subprocess.run(
-            ['git', 'fetch', remote, '--quiet'],
+            ['git', 'fetch', '--', remote],
             capture_output=True, timeout=timeout, cwd=git_root,
         )
 
         # Compare local vs remote
+        if upstream.startswith('-'):
+            upstream = 'origin/master'
         behind = subprocess.run(
             ['git', 'rev-list', '--count', f'HEAD..{upstream}'],
             capture_output=True, text=True, timeout=5, cwd=git_root,
@@ -224,9 +228,11 @@ def _update_dev(progress_fn=None) -> dict:
         )
         upstream = tracking.stdout.strip() if tracking.returncode == 0 else 'origin/master'
         remote = upstream.split('/')[0] if '/' in upstream else 'origin'
+        if remote.startswith('-'):
+            remote = 'origin'
 
         subprocess.run(
-            ['git', 'fetch', remote, '--quiet'],
+            ['git', 'fetch', '--', remote],
             capture_output=True, timeout=30, cwd=git_root,
         )
 
