@@ -239,3 +239,68 @@ def test_websocket_oversized_message(client):
         huge = json.dumps({"type": "cancel", "padding": "x" * 5000})
         ws.send_text(huge)
         # Server should drop it, no crash
+
+
+# ── Security: Unauthenticated access ─────────────────────────────
+
+
+@pytest.fixture
+def unauth_client(app):
+    """TestClient without session token — for testing 403 responses."""
+    return TestClient(app)
+
+
+def test_post_without_token_returns_403(unauth_client):
+    """POST to mutating endpoint without session token returns 403."""
+    resp = unauth_client.post("/api/install/start", json={
+        "wabbajack_path": "/tmp/test.wabbajack",
+        "output_dir": "/tmp/out",
+        "downloads_dir": "/tmp/dl",
+        "game_dir": "/tmp/game",
+    })
+    assert resp.status_code == 403
+
+
+def test_websocket_without_token_rejected(unauth_client):
+    """WebSocket connection without token is rejected."""
+    try:
+        with unauth_client.websocket_connect("/ws") as ws:
+            pytest.fail("Should have been rejected")
+    except Exception:
+        pass  # Expected: connection refused or closed
+
+
+def test_websocket_wrong_token_rejected(unauth_client):
+    """WebSocket connection with wrong token is rejected."""
+    try:
+        with unauth_client.websocket_connect("/ws?token=wrong") as ws:
+            pytest.fail("Should have been rejected")
+    except Exception:
+        pass  # Expected: connection refused or closed
+
+
+# ── Security: DNS Rebinding / TrustedHost ────────────────────────
+
+
+def test_untrusted_host_rejected(app):
+    """Requests with non-localhost Host header are rejected by TrustedHostMiddleware."""
+    evil_client = TestClient(app, headers={"Host": "evil.example.com"})
+    resp = evil_client.get("/api/install/status")
+    assert resp.status_code == 400
+
+
+# ── Games endpoint: installed vs not_found ────────────────────────
+
+
+def test_installed_game_in_games_not_not_found(client, tmp_path):
+    """Installed game appears in 'games' list, not in 'not_found'."""
+    fake_lib = tmp_path / "steamapps" / "common"
+    (fake_lib / "Skyrim Special Edition").mkdir(parents=True)
+
+    with patch("wabbajack.platform.find_steam_libraries", return_value=[fake_lib]):
+        resp = client.get("/api/games")
+    data = resp.json()
+    game_ids = [g["id"] for g in data["games"]]
+    not_found_ids = [g["id"] for g in data["not_found"]]
+    assert "SkyrimSpecialEdition" in game_ids
+    assert "SkyrimSpecialEdition" not in not_found_ids
