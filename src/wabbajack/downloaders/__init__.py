@@ -88,29 +88,29 @@ def _download_requests(session, url, dest_path, timeout, quiet):
                 log.debug(f"    Resuming from {resume_offset/1048576:.1f} MB")
 
     try:
-        resp = session.get(url, stream=True, timeout=timeout, allow_redirects=True,
-                           headers=headers)
-        resp.raise_for_status()
+        with session.get(url, stream=True, timeout=timeout, allow_redirects=True,
+                         headers=headers) as resp:
+            resp.raise_for_status()
 
-        # Handle resume response
-        if resp.status_code == 206:  # Partial content -- resume worked
-            total = int(resp.headers.get('Content-Range', '').split('/')[-1] or 0)
-        else:
-            total = int(resp.headers.get('Content-Length', 0))
-            resume_offset = 0  # Server doesn't support resume
-            mode = 'wb'
+            # Handle resume response
+            if resp.status_code == 206:  # Partial content -- resume worked
+                total = int(resp.headers.get('Content-Range', '').split('/')[-1] or 0)
+            else:
+                total = int(resp.headers.get('Content-Length', 0))
+                resume_offset = 0  # Server doesn't support resume
+                mode = 'wb'
 
-        downloaded = resume_offset
-        start = time.time()
-        with open(part_path, mode) as f:
-            for chunk in resp.iter_content(chunk_size=CHUNK_SIZE):
-                if chunk:
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    if not quiet:
-                        elapsed = time.time() - start
-                        speed = (downloaded - resume_offset) / elapsed if elapsed > 0 else 0
-                        _print_progress(downloaded, total, speed)
+            downloaded = resume_offset
+            start = time.time()
+            with open(part_path, mode) as f:
+                for chunk in resp.iter_content(chunk_size=CHUNK_SIZE):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if not quiet:
+                            elapsed = time.time() - start
+                            speed = (downloaded - resume_offset) / elapsed if elapsed > 0 else 0
+                            _print_progress(downloaded, total, speed)
 
         # Rename .part to final name on success
         part_path.rename(dest)

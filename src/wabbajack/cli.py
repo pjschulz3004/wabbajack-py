@@ -93,19 +93,19 @@ def info(wabbajack):
               help='Only download specific types')
 def download(wabbajack, downloads, nexus_key, game_dir, dry_run, verify, types):
     """Download missing archives for a modlist."""
-    ml = WabbajackModlist(wabbajack)  # Stays open for installer use
-    log.info(f"{ml.name} v{ml.version} by {ml.author}")
+    with WabbajackModlist(wabbajack) as ml:
+        log.info(f"{ml.name} v{ml.version} by {ml.author}")
 
-    gdir = Path(game_dir) if game_dir else detect_game_dir(ml.game)
-    if not gdir or not gdir.exists():
-        log.error(f"Game directory not found. Use -g to specify.")
-        raise SystemExit(1)
+        gdir = Path(game_dir) if game_dir else detect_game_dir(ml.game)
+        if not gdir or not gdir.exists():
+            log.error(f"Game directory not found. Use -g to specify.")
+            raise SystemExit(1)
 
-    import tempfile
-    with tempfile.TemporaryDirectory(prefix='wj-dl-') as tmpdir:
-        inst = ModlistInstaller(ml, tmpdir, downloads, gdir,
-                                nexus_key=nexus_key, verify_hashes=verify)
-        inst.download_all(types=list(types) if types else None, dry_run=dry_run)
+        import tempfile
+        with tempfile.TemporaryDirectory(prefix='wj-dl-') as tmpdir:
+            inst = ModlistInstaller(ml, tmpdir, downloads, gdir,
+                                    nexus_key=nexus_key, verify_hashes=verify)
+            inst.download_all(types=list(types) if types else None, dry_run=dry_run)
 
 
 @main.command()
@@ -124,7 +124,7 @@ def download(wabbajack, downloads, nexus_key, game_dir, dry_run, verify, types):
 def install(wabbajack, output, downloads, game_dir, nexus_key, workers,
             cache_dir, skip_download, dry_run, verify, profile, types):
     """Full install: download + extract + place files."""
-    ml = WabbajackModlist(wabbajack)
+    ml = WabbajackModlist(wabbajack)  # closed in finally below
     log.info(f"{ml.name} v{ml.version} by {ml.author}")
 
     gdir = Path(game_dir) if game_dir else detect_game_dir(ml.game)

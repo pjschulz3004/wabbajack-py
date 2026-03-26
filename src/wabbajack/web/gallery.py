@@ -24,6 +24,7 @@ async def fetch_gallery():
     async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
         try:
             resp = await client.get(REPOS_URL)
+            resp.raise_for_status()
             repos_data = resp.json()
 
             # repositories.json is a dict: {"name": "url", ...}
@@ -40,7 +41,8 @@ async def fetch_gallery():
                     r = await client.get(url, timeout=15)
                     data = r.json()
                     return data if isinstance(data, list) else []
-                except Exception:
+                except Exception as e:
+                    log.debug(f"Gallery repo fetch failed: {url}: {e}")
                     return []
 
             results = await asyncio.gather(*[fetch_repo(url) for url in repo_urls])

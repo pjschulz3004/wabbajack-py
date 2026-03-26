@@ -13,6 +13,7 @@ class InstallState:
     def __init__(self, output_dir):
         self.path = Path(output_dir) / STATE_FILE
         self._data = self._load()
+        self._hash_set_cache = set(self._data.get('completed_hashes', []))
 
     def _load(self):
         if self.path.exists():
@@ -50,8 +51,6 @@ class InstallState:
 
     @property
     def completed_hashes(self):
-        if not hasattr(self, '_hash_set_cache'):
-            self._hash_set_cache = set(self._data.get('completed_hashes', []))
         return self._hash_set_cache
 
     def mark_hash_done(self, archive_hash):

@@ -621,7 +621,9 @@ class ModlistInstaller:
                         ok += 1
                     else:
                         fail += 1
-                except Exception:
+                except Exception as e:
+                    src, to = futures[future]
+                    log.debug(f"Place failed: {to} <- {src}: {e}")
                     fail += 1
         with self._stats_lock:
             self.stats['ok'] += ok
