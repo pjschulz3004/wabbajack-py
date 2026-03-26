@@ -18,7 +18,8 @@ _serve_restart_cmd: list[str] | None = None
 
 
 def create_app():
-    app = FastAPI(title="wabbajack-py", version="0.3.0")
+    from .. import __version__
+    app = FastAPI(title="wabbajack-py", version=__version__)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
