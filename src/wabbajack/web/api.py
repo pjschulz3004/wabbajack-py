@@ -259,6 +259,11 @@ async def load_order_get(game_type: str, game_dir: str = '', profile: str = ''):
     if game_type == 'supported':
         return {"games": list(LOAD_ORDER_CLASSES.keys())}
 
+    # Validate paths against traversal
+    for p in (game_dir, profile):
+        if p and ('\x00' in p or '..' in Path(p).parts):
+            raise HTTPException(400, "Invalid path")
+
     gd = game_dir or detect_game_dir(game_type)
     if not gd:
         raise HTTPException(404, f"Could not find {game_type} installation")
@@ -298,6 +303,10 @@ async def load_order_update(game_type: str, req: LoadOrderUpdate,
     """Update load order for a game."""
     from ..loadorder import get_load_order, ModEntry, PluginEntry
     from ..platform import detect_game_dir
+
+    for p in (game_dir, profile):
+        if p and ('\x00' in p or '..' in Path(p).parts):
+            raise HTTPException(400, "Invalid path")
 
     gd = game_dir or detect_game_dir(game_type)
     if not gd:
