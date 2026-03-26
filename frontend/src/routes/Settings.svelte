@@ -174,7 +174,12 @@
   async function loadNexus() {
     nexusLoading = true;
     try {
-      nexus = await api.nexusStatus();
+      const resp = await api.nexusStatus();
+      // Map API response {logged_in, username, premium} to {status, username}
+      nexus = {
+        status: !resp.logged_in ? 'logged_out' : resp.premium ? 'premium' : 'free',
+        username: resp.username ?? undefined,
+      };
     } catch {
       nexus = { status: 'logged_out' };
     } finally {
