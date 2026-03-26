@@ -10,6 +10,9 @@
   let gameFilter = $state('all');
   let showNsfw = $state(false);
 
+  type SortKey = 'recommended' | 'updated' | 'install_size' | 'download_size' | 'mod_count' | 'name';
+  let sortKey = $state<SortKey>('recommended');
+
   $effect(() => {
     fetchGallery();
   });
@@ -34,6 +37,8 @@
     return Array.from(set).sort();
   });
 
+  function getDm(m: any) { return m.download_metadata ?? {}; }
+
   let filtered = $derived.by(() => {
     let result = modlists;
 
@@ -54,7 +59,35 @@
       result = result.filter(m => !m.nsfw);
     }
 
-    return result;
+    // Sort
+    const sorted = [...result];
+    switch (sortKey) {
+      case 'recommended':
+        sorted.sort((a, b) => {
+          // Official first, then by dateUpdated descending
+          const ao = a.official ? 1 : 0, bo = b.official ? 1 : 0;
+          if (ao !== bo) return bo - ao;
+          const ad = a.dateUpdated ?? '', bd = b.dateUpdated ?? '';
+          return bd.localeCompare(ad);
+        });
+        break;
+      case 'updated':
+        sorted.sort((a, b) => (b.dateUpdated ?? '').localeCompare(a.dateUpdated ?? ''));
+        break;
+      case 'install_size':
+        sorted.sort((a, b) => (getDm(b).SizeOfInstalledFiles ?? 0) - (getDm(a).SizeOfInstalledFiles ?? 0));
+        break;
+      case 'download_size':
+        sorted.sort((a, b) => (getDm(b).SizeOfArchives ?? 0) - (getDm(a).SizeOfArchives ?? 0));
+        break;
+      case 'mod_count':
+        sorted.sort((a, b) => (getDm(b).NumberOfArchives ?? 0) - (getDm(a).NumberOfArchives ?? 0));
+        break;
+      case 'name':
+        sorted.sort((a, b) => (a.title ?? '').localeCompare(b.title ?? ''));
+        break;
+    }
+    return sorted;
   });
 
   let { onInstall }: { onInstall?: (modlist: any) => void } = $props();
@@ -87,6 +120,16 @@
       {#each games as game}
         <option value={game}>{game}</option>
       {/each}
+    </select>
+
+    <label for="gallery-sort" class="sr-only">Sort by</label>
+    <select id="gallery-sort" bind:value={sortKey} class="sort-select">
+      <option value="recommended">Recommended</option>
+      <option value="updated">Recently Updated</option>
+      <option value="install_size">Install Size</option>
+      <option value="download_size">Download Size</option>
+      <option value="mod_count">Mod Count</option>
+      <option value="name">A — Z</option>
     </select>
 
     <button
@@ -187,7 +230,7 @@
     padding-left: 2rem;
   }
 
-  .game-select {
+  .game-select, .sort-select {
     width: auto;
     min-width: 140px;
   }

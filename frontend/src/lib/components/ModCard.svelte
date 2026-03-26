@@ -15,6 +15,10 @@
   }
 
   let tags = $derived((modlist.tags ?? []).slice(0, 4));
+  let dm = $derived(modlist.download_metadata ?? {});
+  let archiveSize = $derived(dm.SizeOfArchives ?? modlist.downloadSize ?? 0);
+  let installSize = $derived(dm.SizeOfInstalledFiles ?? modlist.installSize ?? 0);
+  let archiveCount = $derived(dm.NumberOfArchives ?? 0);
 </script>
 
 <button class="mod-card" onclick={() => onselect?.(modlist)}>
@@ -65,22 +69,30 @@
     {/if}
 
     <div class="sizes">
-      {#if modlist.downloadSize ?? modlist.download_size}
-        <span class="size-item">
+      {#if archiveSize}
+        <span class="size-item" title="Download size">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
             <polyline points="7 10 12 15 17 10" />
             <line x1="12" y1="15" x2="12" y2="3" />
           </svg>
-          {formatSize(modlist.downloadSize ?? modlist.download_size)}
+          {formatSize(archiveSize)}
         </span>
       {/if}
-      {#if modlist.installSize ?? modlist.install_size}
-        <span class="size-item">
+      {#if installSize}
+        <span class="size-item" title="Install size">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
           </svg>
-          {formatSize(modlist.installSize ?? modlist.install_size)}
+          {formatSize(installSize)}
+        </span>
+      {/if}
+      {#if archiveCount}
+        <span class="size-item" title="{archiveCount} archives">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+          </svg>
+          {archiveCount.toLocaleString()}
         </span>
       {/if}
     </div>
