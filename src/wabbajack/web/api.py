@@ -45,18 +45,11 @@ class InstallRequest(BaseModel):
 
 
 class SettingsUpdate(BaseModel):
-    output_dir: Optional[str] = None
-    downloads_dir: Optional[str] = None
-    game_dir: Optional[str] = None
-    workers: Optional[int] = None
+    """Global settings update (per-game paths are per-profile, not here)."""
+    default_workers: Optional[int] = None
     verify_hashes: Optional[bool] = None
 
-    @field_validator('output_dir', 'downloads_dir', 'game_dir')
-    @classmethod
-    def validate_paths(cls, v: str | None) -> str | None:
-        return _check_path(v) if v is not None else v
-
-    @field_validator('workers')
+    @field_validator('default_workers')
     @classmethod
     def validate_workers(cls, v: int | None) -> int | None:
         if v is not None and (v < 1 or v > 64):

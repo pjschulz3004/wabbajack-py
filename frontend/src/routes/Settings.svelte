@@ -14,20 +14,14 @@
   }
 
   interface SettingsData {
-    output_dir: string;
-    downloads_dir: string;
-    game_dir: string;
-    workers: number;
+    default_workers: number;
     verify_hashes: boolean;
   }
 
-  // Settings state
+  // Settings state (global only — per-game paths are per-profile)
   let settings: SettingsData = $state({
-    output_dir: '',
-    downloads_dir: '',
-    game_dir: '',
-    workers: 12,
-    verify_hashes: true,
+    default_workers: 12,
+    verify_hashes: false,
   });
   let originalSettings: string = $state('');
   let settingsLoading: boolean = $state(true);
@@ -301,67 +295,25 @@
       <p>Loading settings...</p>
     </div>
   {:else}
-    <!-- Section 1: Paths -->
+    <!-- Section 1: Detected Games -->
     <section class="settings-section">
       <div class="section-header">
-        <h2>Paths</h2>
-        <p class="section-desc">Configure output, download, and game directories</p>
+        <h2>Detected Games</h2>
+        <p class="section-desc">Games found on this system (paths configured per-profile during install)</p>
       </div>
 
-      <div class="field-group">
-        <label class="field-label" for="output-dir">Output Directory</label>
-        <input
-          id="output-dir"
-          type="text"
-          bind:value={settings.output_dir}
-          placeholder="/path/to/modlist/output"
-          spellcheck="false"
-        />
-        <p class="field-hint">Where the installed modlist is placed</p>
-      </div>
-
-      <div class="field-group">
-        <label class="field-label" for="downloads-dir">Downloads Directory</label>
-        <input
-          id="downloads-dir"
-          type="text"
-          bind:value={settings.downloads_dir}
-          placeholder="/path/to/downloads"
-          spellcheck="false"
-        />
-        <p class="field-hint">Where mod archives are cached</p>
-      </div>
-
-      <div class="field-group">
-        <label class="field-label" for="game-dir">Game Directory</label>
-        <input
-          id="game-dir"
-          type="text"
-          bind:value={settings.game_dir}
-          placeholder="/path/to/game"
-          spellcheck="false"
-        />
-        <p class="field-hint">Auto-detected games shown below</p>
-      </div>
-
-      <!-- Detected Games -->
       <div class="detected-games">
-        <h3 class="subsection-title">Detected Games</h3>
         {#if gamesLoading}
           <p class="muted-text">Scanning for games...</p>
         {:else if games.length === 0}
-          <p class="muted-text">No games detected</p>
+          <p class="muted-text">No supported games detected in Steam libraries</p>
         {:else}
           <div class="games-list">
             {#each games as game}
-              <div class="game-row" class:installed={game.installed}>
+              <div class="game-row installed">
                 <div class="game-info">
                   <span class="game-name">{game.name}</span>
-                  {#if game.installed}
-                    <span class="badge badge-success">Installed</span>
-                  {:else}
-                    <span class="badge badge-error">Not Found</span>
-                  {/if}
+                  <span class="badge badge-success">Installed</span>
                 </div>
                 {#if game.path}
                   <code class="game-path">{game.path}</code>
@@ -383,7 +335,7 @@
       <div class="field-group">
         <label class="field-label" for="workers">
           Workers
-          <span class="field-value">{settings.workers}</span>
+          <span class="field-value">{settings.default_workers}</span>
         </label>
         <input
           id="workers"
@@ -391,7 +343,7 @@
           min="1"
           max="32"
           step="1"
-          bind:value={settings.workers}
+          bind:value={settings.default_workers}
         />
         <div class="range-labels">
           <span>1</span>

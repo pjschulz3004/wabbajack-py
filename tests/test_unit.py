@@ -1577,34 +1577,28 @@ class TestNexusAuth:
 # ═══════════════════════════════════════════════════════════════════════
 
 class TestSettingsUpdateValidation:
-    """Tests for SettingsUpdate Pydantic model validation."""
-
-    def test_rejects_path_traversal(self):
-        from wabbajack.web.api import SettingsUpdate
-        from pydantic import ValidationError
-        with pytest.raises(ValidationError):
-            SettingsUpdate(output_dir="/home/../../../etc/shadow")
-
-    def test_rejects_null_bytes(self):
-        from wabbajack.web.api import SettingsUpdate
-        from pydantic import ValidationError
-        with pytest.raises(ValidationError):
-            SettingsUpdate(game_dir="/home/user/game\x00dir")
+    """Tests for SettingsUpdate Pydantic model validation (global settings only)."""
 
     def test_rejects_workers_zero(self):
         from wabbajack.web.api import SettingsUpdate
         from pydantic import ValidationError
         with pytest.raises(ValidationError, match="Workers must be"):
-            SettingsUpdate(workers=0)
+            SettingsUpdate(default_workers=0)
+
+    def test_rejects_workers_too_high(self):
+        from wabbajack.web.api import SettingsUpdate
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError, match="Workers must be"):
+            SettingsUpdate(default_workers=100)
 
     def test_accepts_valid_partial_update(self):
         from wabbajack.web.api import SettingsUpdate
-        s = SettingsUpdate(workers=8, verify_hashes=True)
-        assert s.workers == 8
+        s = SettingsUpdate(default_workers=8, verify_hashes=True)
+        assert s.default_workers == 8
         assert s.verify_hashes is True
-        assert s.output_dir is None
 
-    def test_accepts_none_paths(self):
+    def test_accepts_all_none(self):
         from wabbajack.web.api import SettingsUpdate
-        s = SettingsUpdate(output_dir=None, downloads_dir=None)
-        assert s.output_dir is None
+        s = SettingsUpdate()
+        assert s.default_workers is None
+        assert s.verify_hashes is None
