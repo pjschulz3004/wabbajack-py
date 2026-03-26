@@ -23,21 +23,20 @@ def client(app):
 
 
 def test_get_games_returns_list(client):
-    """GET /api/games returns a dict with 'libraries' and 'games' keys."""
+    """GET /api/games returns installed games, not_found, and total_supported."""
     with patch("wabbajack.platform.find_steam_libraries", return_value=[]):
         resp = client.get("/api/games")
     assert resp.status_code == 200
     data = resp.json()
     assert "libraries" in data
     assert "games" in data
+    assert "not_found" in data
+    assert "total_supported" in data
     assert isinstance(data["games"], list)
-    # Each game entry should have expected keys
-    if data["games"]:
-        game = data["games"][0]
-        assert "id" in game
-        assert "name" in game
-        assert "installed" in game
-        assert isinstance(game["installed"], bool)
+    assert isinstance(data["not_found"], list)
+    # With no libraries, all games should be in not_found
+    assert len(data["games"]) == 0
+    assert len(data["not_found"]) == data["total_supported"]
 
 
 def test_get_games_with_installed_game(client, tmp_path):

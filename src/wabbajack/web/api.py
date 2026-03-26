@@ -89,7 +89,8 @@ async def get_gallery_item(machine_url: str):
 async def get_games():
     from ..platform import find_steam_libraries, GAME_DIRS
     libraries = find_steam_libraries()
-    games = []
+    installed = []
+    not_found = []
     for game_type, info in sorted(GAME_DIRS.items()):
         found = None
         for lib in libraries:
@@ -97,13 +98,18 @@ async def get_games():
             if p.exists():
                 found = str(p)
                 break
-        games.append({
-            "id": game_type,
-            "name": info["display"],
-            "path": found,
-            "installed": found is not None,
-        })
-    return {"libraries": [str(l) for l in libraries], "games": games}
+        entry = {"id": game_type, "name": info["display"], "path": found, "installed": found is not None}
+        if found:
+            installed.append(entry)
+        else:
+            not_found.append(entry)
+    # Installed games first, not-found collapsed separately
+    return {
+        "libraries": [str(lib) for lib in libraries],
+        "games": installed,
+        "not_found": not_found,
+        "total_supported": len(GAME_DIRS),
+    }
 
 
 # ── Settings ─────────────────────────────────────────────────────────
@@ -391,8 +397,10 @@ async def get_installs():
 
     # 2. Scan for .wabbajack files in common locations
     wj_files = []
+    # XDG data dir for this app + common download locations
+    app_data = home / ".local" / "share" / "wabbajack-py" / "modlists"
     scan_dirs = [
-        home / "Jackify" / "downloaded_mod_lists",
+        app_data,
         home / "Downloads",
         games_dir,
     ]
