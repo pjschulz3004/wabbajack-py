@@ -33,9 +33,28 @@
     showForm = true;
   }
 
-  function loadWjFile(path: string) {
+  async function loadWjFile(path: string) {
     wabbajackPath = path;
     showForm = true;
+
+    // Open the modlist to get metadata (game, name) for defaults
+    try {
+      const ml = await api.openModlist(path);
+      const game = ml.game ?? '';
+      const title = (ml.name ?? 'modlist').replace(/[^a-zA-Z0-9_-]/g, '_');
+
+      const data = await fetch('/api/installs').then(r => r.json());
+      const base: string = data.downloads_base ?? '';
+      if (game) downloadsDir = `${base}/${game}`;
+      outputDir = base.replace('/WabbajackDownloads', '') + `/${title}`;
+
+      const gamesData = await api.games();
+      const games = gamesData.games ?? gamesData ?? [];
+      const match = games.find((g: any) =>
+        g.id?.toLowerCase() === game.toLowerCase() || g.name?.toLowerCase() === game.toLowerCase()
+      );
+      if (match?.path) gameDir = match.path;
+    } catch {}
   }
 
   function formatSize(bytes: number): string {
