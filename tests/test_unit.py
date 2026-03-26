@@ -1257,3 +1257,75 @@ class TestUpdaterLogic:
         assert "Cyberpunk2077" in LOAD_ORDER_CLASSES
         assert "StardewValley" in LOAD_ORDER_CLASSES
         assert len(LOAD_ORDER_CLASSES) == 9
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# octodiff.py: Delta Applier
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestOctoDiff:
+
+    def _make_delta(self, tmp_path, commands, expected_length=0):
+        """Build a minimal OctoDiff delta file."""
+        buf = b'OCTODELTA\x00'
+        algo = b'SHA1'
+        buf += bytes([len(algo)]) + algo
+        buf += struct.pack('<I', 4) + b'\x00' * 4  # dummy hash
+        buf += struct.pack('<q', expected_length)
+        for cmd in commands:
+            buf += cmd
+        path = tmp_path / 'delta.bin'
+        path.write_bytes(buf)
+        return path
+
+    def test_data_only_delta(self, tmp_path):
+        from wabbajack.octodiff import apply_delta
+        basis = tmp_path / 'basis.txt'
+        basis.write_bytes(b'original content')
+        output = tmp_path / 'output.txt'
+        data = b'hello patched world'
+        cmd = bytes([0x80]) + struct.pack('<q', len(data)) + data
+        delta = self._make_delta(tmp_path, [cmd], expected_length=len(data))
+        assert apply_delta(basis, delta, output) is True
+        assert output.read_bytes() == data
+
+    def test_copy_from_basis(self, tmp_path):
+        from wabbajack.octodiff import apply_delta
+        basis = tmp_path / 'basis.txt'
+        basis.write_bytes(b'ABCDEFGHIJ')
+        output = tmp_path / 'output.txt'
+        cmd = bytes([0x60]) + struct.pack('<q', 2) + struct.pack('<q', 5)
+        delta = self._make_delta(tmp_path, [cmd], expected_length=5)
+        assert apply_delta(basis, delta, output) is True
+        assert output.read_bytes() == b'CDEFG'
+
+    def test_mixed_copy_and_data(self, tmp_path):
+        from wabbajack.octodiff import apply_delta
+        basis = tmp_path / 'basis.txt'
+        basis.write_bytes(b'Hello World')
+        output = tmp_path / 'output.txt'
+        cmds = [
+            bytes([0x60]) + struct.pack('<q', 0) + struct.pack('<q', 5),
+            bytes([0x80]) + struct.pack('<q', 8) + b' Patched',
+        ]
+        delta = self._make_delta(tmp_path, cmds, expected_length=13)
+        assert apply_delta(basis, delta, output) is True
+        assert output.read_bytes() == b'Hello Patched'
+
+    def test_bad_magic_returns_false(self, tmp_path):
+        from wabbajack.octodiff import apply_delta
+        basis = tmp_path / 'basis.txt'
+        basis.write_bytes(b'data')
+        delta = tmp_path / 'bad.bin'
+        delta.write_bytes(b'NOTADELTA')
+        output = tmp_path / 'output.txt'
+        assert apply_delta(basis, delta, output) is False
+
+    def test_empty_delta(self, tmp_path):
+        from wabbajack.octodiff import apply_delta
+        basis = tmp_path / 'basis.txt'
+        basis.write_bytes(b'data')
+        output = tmp_path / 'output.txt'
+        delta = self._make_delta(tmp_path, [], expected_length=0)
+        assert apply_delta(basis, delta, output) is True
+        assert output.read_bytes() == b''
