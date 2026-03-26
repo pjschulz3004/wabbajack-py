@@ -25,36 +25,70 @@
     }).catch(() => {});
   });
 
+  // Shared: fill any empty fields from APIs
+  async function fillMissingDefaults(wjPath?: string) {
+    let game = '';
+    let title = '';
+
+    // Step 1: find the .wabbajack file if we don't have one
+    try {
+      const data = await fetch('/api/installs').then(r => r.json());
+      const base: string = data.downloads_base ?? '';
+
+      if (!wjPath && !wabbajackPath) {
+        const wjFiles: string[] = data.wabbajack_files ?? [];
+        const norm = (s: string) => s.toLowerCase().replace(/[_\s-]/g, '');
+        const dirName = norm(outputDir.split('/').pop() ?? '');
+        const match = wjFiles.find((f: string) => dirName && norm(f).includes(dirName));
+        if (match) {
+          wabbajackPath = match;
+          wjPath = match;
+        }
+      } else if (wjPath) {
+        wabbajackPath = wjPath;
+      }
+
+      // Step 2: open modlist to get game/name
+      if (wabbajackPath) {
+        try {
+          const ml = await api.openModlist(wabbajackPath);
+          game = ml.game ?? '';
+          title = (ml.name ?? '').replace(/[^a-zA-Z0-9_-]/g, '_');
+        } catch {}
+      }
+
+      // Step 3: fill remaining fields
+      if (!downloadsDir && game) downloadsDir = `${base}/${game.toLowerCase()}`;
+      if (!outputDir && title) outputDir = base.replace('/WabbajackDownloads', '') + `/${title}`;
+    } catch {}
+
+    // Step 4: fill game dir
+    if (!gameDir && game) {
+      try {
+        const gamesData = await api.games();
+        const games = gamesData.games ?? gamesData ?? [];
+        const match = games.find((g: any) =>
+          g.id?.toLowerCase() === game.toLowerCase() || g.name?.toLowerCase() === game.toLowerCase()
+        );
+        if (match?.path) gameDir = match.path;
+      } catch {}
+    }
+  }
+
   function loadDetectedInstall(inst: DetectedInstall) {
     wabbajackPath = inst.wabbajack_path;
     outputDir = inst.output_dir;
     downloadsDir = inst.downloads_dir;
     gameDir = inst.game_dir;
     showForm = true;
+    // Fill any fields the state file didn't have
+    fillMissingDefaults(inst.wabbajack_path || undefined);
   }
 
   async function loadWjFile(path: string) {
     wabbajackPath = path;
     showForm = true;
-
-    // Open the modlist to get metadata (game, name) for defaults
-    try {
-      const ml = await api.openModlist(path);
-      const game = ml.game ?? '';
-      const title = (ml.name ?? 'modlist').replace(/[^a-zA-Z0-9_-]/g, '_');
-
-      const data = await fetch('/api/installs').then(r => r.json());
-      const base: string = data.downloads_base ?? '';
-      if (game) downloadsDir = `${base}/${game}`;
-      outputDir = base.replace('/WabbajackDownloads', '') + `/${title}`;
-
-      const gamesData = await api.games();
-      const games = gamesData.games ?? gamesData ?? [];
-      const match = games.find((g: any) =>
-        g.id?.toLowerCase() === game.toLowerCase() || g.name?.toLowerCase() === game.toLowerCase()
-      );
-      if (match?.path) gameDir = match.path;
-    } catch {}
+    await fillMissingDefaults(path);
   }
 
   function formatSize(bytes: number): string {
