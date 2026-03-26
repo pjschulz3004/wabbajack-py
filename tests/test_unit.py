@@ -179,8 +179,7 @@ class TestInstallState:
         state1.mark_hash_done("H1")
         state1.mark_hash_done("H2")
         state1.update_stats(100, 5)
-        state1.phase = "placing"  # triggers save
-        state1.save()
+        state1.phase = "placing"  # triggers _save via setter
 
         # Reload
         state2 = InstallState(tmp_path)
@@ -1084,34 +1083,6 @@ class TestBethesdaLoadOrder:
         lo.plugins = [PluginEntry("Off.esp", enabled=False, masters=["Ghost.esm"])]
         assert lo.validate_load_order() == []
 
-    def test_move_mod_to_front(self, tmp_path):
-        from wabbajack.loadorder import ModEntry
-        lo = self._make_lo(tmp_path)
-        lo.mods = [ModEntry("A", priority=0), ModEntry("B", priority=1), ModEntry("C", priority=2)]
-        assert lo.move_mod("C", 0) is True
-        assert lo.mods[0].name == "C"
-
-    def test_move_mod_to_end(self, tmp_path):
-        from wabbajack.loadorder import ModEntry
-        lo = self._make_lo(tmp_path)
-        lo.mods = [ModEntry("A", priority=0), ModEntry("B", priority=1), ModEntry("C", priority=2)]
-        assert lo.move_mod("A", 999) is True
-        assert lo.mods[-1].name == "A"
-
-    def test_move_nonexistent(self, tmp_path):
-        from wabbajack.loadorder import ModEntry
-        lo = self._make_lo(tmp_path)
-        lo.mods = [ModEntry("A")]
-        assert lo.move_mod("DoesNotExist", 0) is False
-
-    def test_priorities_renumbered(self, tmp_path):
-        from wabbajack.loadorder import ModEntry
-        lo = self._make_lo(tmp_path)
-        lo.mods = [ModEntry("A", priority=0), ModEntry("B", priority=1), ModEntry("C", priority=2)]
-        lo.move_mod("B", 0)
-        for i, m in enumerate(lo.mods):
-            assert m.priority == i
-
     def test_load_modlist_txt(self, tmp_path):
         lo = self._make_lo(tmp_path)
         (tmp_path / 'modlist.txt').write_text("# comment\n+Enabled Mod\n-Disabled Mod\n*Unmanaged\n")
@@ -1495,7 +1466,7 @@ class TestInstallStatePeriodicSave:
         state = InstallState(tmp_path)
         for i in range(37):
             state.mark_hash_done(f"hash_{i:04d}")
-        state.save()
+        state._save()  # Explicit flush for test verification
 
         reloaded = InstallState(tmp_path)
         assert len(reloaded.completed_hashes) == 37

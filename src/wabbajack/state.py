@@ -72,9 +72,6 @@ class InstallState:
         self._data['completed_at'] = time.strftime('%Y-%m-%d %H:%M:%S')
         self._save()
 
-    def save(self):
-        self._save()
-
     def reset(self):
         """Reset state for a fresh install."""
         self._data = {

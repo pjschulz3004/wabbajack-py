@@ -7,7 +7,7 @@ Extensible to other games via the GameLoadOrder base class.
 import logging, struct, xml.etree.ElementTree as ET
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Optional
+
 
 log = logging.getLogger(__name__)
 
@@ -105,7 +105,7 @@ def read_plugin_header(path: Path) -> PluginEntry:
 class GameLoadOrder(ABC):
     """Abstract base for game-specific load order management."""
 
-    def __init__(self, game_dir: Path, profile_dir: Optional[Path] = None):
+    def __init__(self, game_dir: Path, profile_dir: Path | None = None):
         self.game_dir = Path(game_dir)
         self.profile_dir = Path(profile_dir) if profile_dir else None
         self.mods: list[ModEntry] = []
@@ -124,35 +124,6 @@ class GameLoadOrder(ABC):
     @abstractmethod
     def detect_mods(self) -> list[ModEntry]:
         """Scan the game directory for installed mods."""
-
-    def enable_mod(self, name: str) -> bool:
-        for m in self.mods:
-            if m.name == name:
-                m.enabled = True
-                return True
-        return False
-
-    def disable_mod(self, name: str) -> bool:
-        for m in self.mods:
-            if m.name == name:
-                m.enabled = False
-                return True
-        return False
-
-    def move_mod(self, name: str, new_priority: int) -> bool:
-        """Move a mod to a new position in the load order."""
-        idx = next((i for i, m in enumerate(self.mods) if m.name == name), -1)
-        if idx == -1:
-            return False
-        mod = self.mods.pop(idx)
-        new_priority = max(0, min(new_priority, len(self.mods)))
-        self.mods.insert(new_priority, mod)
-        self._renumber_priorities()
-        return True
-
-    def _renumber_priorities(self):
-        for i, m in enumerate(self.mods):
-            m.priority = i
 
     def validate_load_order(self) -> list[str]:
         """Check for load order issues. Override in subclasses for game-specific checks."""
@@ -218,8 +189,8 @@ class BethesdaLoadOrder(GameLoadOrder):
 
     game_type = 'SkyrimSpecialEdition'
 
-    def __init__(self, game_dir: Path, profile_dir: Optional[Path] = None,
-                 data_dir: Optional[Path] = None):
+    def __init__(self, game_dir: Path, profile_dir: Path | None = None,
+                 data_dir: Path | None = None):
         super().__init__(game_dir, profile_dir)
         self.data_dir = data_dir or game_dir / 'Data'
 
@@ -664,7 +635,7 @@ LOAD_ORDER_CLASSES: dict[str, type[GameLoadOrder]] = {
 
 
 def get_load_order(game_type: str, game_dir: Path,
-                   profile_dir: Optional[Path] = None) -> GameLoadOrder:
+                   profile_dir: Path | None = None) -> GameLoadOrder:
     """Factory: get the appropriate load order handler for a game."""
     cls = LOAD_ORDER_CLASSES.get(game_type)
     if cls is None:

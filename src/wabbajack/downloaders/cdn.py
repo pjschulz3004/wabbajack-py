@@ -107,7 +107,7 @@ def download_wabbajack_cdn(base_url, dest_path):
             dest_path.unlink(missing_ok=True)
             return False
 
-    except (OSError, IOError) as e:
+    except OSError as e:
         log.error(f"    CDN write error ({type(e).__name__}): {e}")
         dest_path.unlink(missing_ok=True)
         return False
