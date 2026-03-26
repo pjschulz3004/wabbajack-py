@@ -32,7 +32,7 @@
       </div>
     {:else}
       <img
-        src={modlist.links?.imageUri ?? modlist.image}
+        src={modlist.links?.image ?? modlist.links?.imageUri}
         alt={modlist.title}
         loading="lazy"
         class:loaded={imgLoaded}

@@ -269,7 +269,10 @@
     border-radius: var(--radius);
     padding: 0.625rem 1rem;
     overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
   }
+  .phase-strip::-webkit-scrollbar { display: none; }
 
   .phase-step {
     display: flex;
@@ -337,7 +340,7 @@
   /* Log Section */
   .log-section {
     flex: 1;
-    min-height: 250px;
+    min-height: 200px;
   }
 
   /* Action Section */
@@ -445,5 +448,11 @@
     .form-grid {
       grid-template-columns: 1fr;
     }
+  }
+
+  @media (max-width: 768px) {
+    .install-page { padding: 0.75rem; }
+    .log-section { min-height: 120px; }
+    .phase-step { padding: 0.25rem 0.5rem; font-size: 0.625rem; }
   }
 </style>

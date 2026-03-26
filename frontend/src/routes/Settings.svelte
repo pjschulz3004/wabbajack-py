@@ -927,8 +927,9 @@
     padding: 1rem 0;
     position: sticky;
     bottom: 0;
-    background: linear-gradient(transparent, var(--bg-primary) 30%);
-    padding-top: 2rem;
+    background: linear-gradient(transparent, var(--bg-primary) 40%);
+    padding-top: 2.5rem;
+    margin-top: 0.5rem;
   }
 
   .save-status {

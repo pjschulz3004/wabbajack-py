@@ -11,6 +11,14 @@
   let currentPage = $state<Page>('gallery');
   let selectedModlist = $state<any>(null);
   let sidebarOpen = $state(false);
+  let appVersion = $state('0.3.0');
+
+  // Fetch actual version from server
+  $effect(() => {
+    fetch('/api/update/check').then(r => r.json()).then(d => {
+      if (d.current) appVersion = d.current.split(' ')[0]; // strip git hash
+    }).catch(() => {});
+  });
 
   function navigateToInstall(modlist?: any) {
     selectedModlist = modlist ?? null;
@@ -54,7 +62,7 @@
         </svg>
         <div class="logo-text">
           <span class="logo-name">wabbajack-py</span>
-          <span class="logo-version">v0.3.0</span>
+          <span class="logo-version">v{appVersion}</span>
         </div>
       </div>
     </div>

@@ -180,6 +180,7 @@
     justify-content: space-between;
     margin-bottom: 1.5rem;
     gap: 1rem;
+    flex-wrap: wrap;
   }
 
   .page-header h2 {

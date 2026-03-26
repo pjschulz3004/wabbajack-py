@@ -157,11 +157,14 @@
     background: var(--bg-tertiary);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
+    flex-wrap: wrap;
+    gap: 0.375rem;
   }
 
   .filter-group {
     display: flex;
     gap: 0.25rem;
+    flex-shrink: 0;
   }
 
   .filter-btn {
