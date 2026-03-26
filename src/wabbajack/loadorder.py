@@ -158,6 +158,49 @@ class GameLoadOrder(ABC):
         """Check for load order issues. Override in subclasses for game-specific checks."""
         return []
 
+    def export_json(self, path: Path) -> None:
+        """Export the current load order to a portable JSON file."""
+        import json
+        data = {
+            'game': self.game_type,
+            'version': '1.0',
+            'mods': [
+                {'name': m.name, 'enabled': m.enabled, 'uid': m.uid}
+                for m in self.mods
+            ],
+            'plugins': [
+                {'filename': p.filename, 'enabled': p.enabled,
+                 'is_master': p.is_master, 'is_light': p.is_light}
+                for p in self.plugins
+            ],
+        }
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, indent=2), encoding='utf-8')
+        log.info(f"Exported load order ({len(self.mods)} mods, {len(self.plugins)} plugins) -> {path}")
+
+    def import_json(self, path: Path) -> None:
+        """Import a load order from a portable JSON file."""
+        import json
+        data = json.loads(Path(path).read_text(encoding='utf-8'))
+
+        if data.get('game') and data['game'] != self.game_type:
+            log.warning(f"Load order game mismatch: file has {data['game']}, "
+                        f"this handler is {self.game_type}")
+
+        if 'mods' in data:
+            self.mods = [
+                ModEntry(m['name'], m.get('enabled', True), i, m.get('uid', ''))
+                for i, m in enumerate(data['mods'])
+            ]
+        if 'plugins' in data:
+            self.plugins = [
+                PluginEntry(p['filename'], p.get('enabled', True),
+                            p.get('is_master', False), p.get('is_light', False))
+                for p in data['plugins']
+            ]
+        log.info(f"Imported load order ({len(self.mods)} mods, {len(self.plugins)} plugins) from {path}")
+
     def summary(self) -> dict:
         return {
             'game': self.game_type,
